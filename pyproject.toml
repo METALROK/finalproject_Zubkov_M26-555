@@ -7,6 +7,7 @@ authors = [{ name = "Andrey Zubkov" }]
 requires-python = ">=3.10"
 dependencies = [
     "prettytable>=3.10",
+    "requests>=2.31",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

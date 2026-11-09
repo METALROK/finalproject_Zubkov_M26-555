@@ -13,9 +13,6 @@ PYPROJECT_FILENAME = "pyproject.toml"
 CONFIG_SECTION = "valutatrade"
 ENV_PREFIX = "VALUTATRADE_"
 
-# Ключи конфигурации и значения по умолчанию.
-# Переопределяются секцией [tool.valutatrade] в pyproject.toml,
-# а та - переменными окружения VALUTATRADE_<КЛЮЧ> (например, VALUTATRADE_DATA_DIR).
 DEFAULT_SETTINGS: dict[str, Any] = {
     "data_dir": "data",  # каталог с JSON-файлами
     "users_file": "users.json",  # пользователи
@@ -38,16 +35,8 @@ _MISSING = object()
 class SettingsLoader:
     """
     Singleton: единая точка доступа к конфигурации проекта.
-
-    Источники (по возрастанию приоритета): DEFAULT_SETTINGS,
-    секция [tool.valutatrade] в pyproject.toml, переменные окружения
-    VALUTATRADE_<КЛЮЧ>.
     """
 
-    # Singleton реализован через __new__, а не через метакласс: так проще
-    # читать и отлаживать - вся логика в одном классе, без "магии" метаклассов.
-    # Повторный вызов SettingsLoader() (в т.ч. при импорте из разных модулей)
-    # возвращает тот же объект; конфигурация читается только один раз.
     _instance: "SettingsLoader | None" = None
     _lock = threading.Lock()
 
@@ -64,7 +53,7 @@ class SettingsLoader:
 
     def get(self, key: str, default: Any = _MISSING) -> Any:
         """
-        Вернуть значение параметра; без default неизвестный ключ -> KeyError.
+        Вернуть значение параметра;.
         """
         if key in self._settings:
             return self._settings[key]
@@ -95,13 +84,13 @@ class SettingsLoader:
     @property
     def project_root(self) -> Path:
         """
-        Корень проекта: каталог с pyproject.toml (или текущий каталог).
+        Корень проекта: каталог с pyproject.toml.
         """
         return self._project_root
 
     def data_path(self, file_key: str) -> Path:
         """
-        Полный путь к файлу данных, например data_path("users_file").
+        Полный путь к файлу данных.
         """
         return self._project_root / self.get("data_dir") / self.get(file_key)
 
@@ -125,7 +114,7 @@ class SettingsLoader:
     @staticmethod
     def _read_pyproject_section(path: Path) -> dict[str, Any]:
         """
-        Прочитать секцию [tool.valutatrade]; при ошибке - пустой словарь.
+        Прочитать секцию tool.valutatrade.
         """
         if not path.is_file():
             return {}

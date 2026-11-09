@@ -11,7 +11,7 @@ from valutatrade_hub.infra.settings import SettingsLoader
 
 class DatabaseManager:
     """
-    Singleton: абстракция над JSON-хранилищем (users, portfolios, rates).
+    Singleton: абстракция над JSON-хранилищем.
 
     Пути к файлам берутся из SettingsLoader при каждом обращении,
     поэтому SettingsLoader().reload() сразу влияет на хранилище.
@@ -20,11 +20,8 @@ class DatabaseManager:
     под блокировкой; при исключении файл не меняется.
     """
 
-    # Singleton через __new__ - по тем же причинам, что и SettingsLoader:
-    # просто и читаемо, без метаклассов.
     _instance: "DatabaseManager | None" = None
     _lock = threading.Lock()
-    # RLock: внутри транзакции можно читать/писать (и открывать вложенные).
     _data_lock = threading.RLock()
 
     def __new__(cls):
@@ -39,7 +36,7 @@ class DatabaseManager:
 
     def read(self, file_key: str, default: Any) -> Any:
         """
-        Прочитать JSON-файл по ключу конфигурации (например, "users_file").
+        Прочитать JSON-файл по ключу конфигурации.
         """
         with self._data_lock:
             return load_json(self._path(file_key), copy.deepcopy(default))
@@ -55,10 +52,6 @@ class DatabaseManager:
     def transaction(self, file_key: str, default: Any) -> Iterator[Any]:
         """
         Безопасное изменение файла: чтение -> модификация -> запись.
-
-        Пример:
-            with db.transaction("users_file", []) as users:
-                users.append({...})
 
         Данные записываются только при успешном выходе из блока;
         если внутри возникло исключение, файл остаётся прежним.
