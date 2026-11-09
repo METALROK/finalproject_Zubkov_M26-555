@@ -12,6 +12,17 @@ from valutatrade_hub.core.utils import (
 MIN_PASSWORD_LENGTH = 4
 CURRENCY_CODE_MIN_LENGTH = 2
 CURRENCY_CODE_MAX_LENGTH = 5
+BASE_CURRENCY = "USD"
+
+# Фиксированные курсы: сколько USD стоит 1 единица валюты.
+EXCHANGE_RATES_TO_USD: dict[str, float] = {
+    "USD": 1.0,
+    "EUR": 1.0786,
+    "GBP": 1.2591,
+    "RUB": 0.01016,
+    "BTC": 59337.21,
+    "ETH": 3720.0,
+}
 
 
 class User:
@@ -276,3 +287,119 @@ class Wallet:
 
     def __repr__(self) -> str:
         return f"Wallet(currency_code={self._currency_code!r}, balance={self._balance})"
+
+
+class Portfolio:
+    """
+    Портфель пользователя: набор кошельков в разных валютах.
+    """
+
+    def __init__(
+        self,
+        user_id: int,
+        wallets: dict[str, Wallet] | None = None,
+        user: User | None = None,
+    ) -> None:
+        """
+        Создать портфель пользователя с набором кошельков.
+        """
+        if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError("user_id должен быть положительным целым числом")
+        if user is not None and user.user_id != user_id:
+            raise ValueError("user_id портфеля не совпадает с user_id пользователя")
+        self._user_id = user_id
+        self._user = user
+        self._wallets: dict[str, Wallet] = {}
+        for wallet in (wallets or {}).values():
+            if not isinstance(wallet, Wallet):
+                raise TypeError("Портфель может содержать только объекты Wallet")
+            if wallet.currency_code in self._wallets:
+                raise ValueError(f"Кошелёк {wallet.currency_code} уже есть в портфеле")
+            self._wallets[wallet.currency_code] = wallet
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], user: User | None = None) -> "Portfolio":
+        """
+        Восстановить портфель из словаря.
+        """
+        wallets = {
+            code: Wallet(code, wallet_data["balance"])
+            for code, wallet_data in data.get("wallets", {}).items()
+        }
+        return cls(user_id=data["user_id"], wallets=wallets, user=user)
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Сериализовать портфель в словарь для записи в portfolios.json.
+        """
+        return {
+            "user_id": self._user_id,
+            "wallets": {
+                code: {"balance": wallet.balance}
+                for code, wallet in self._wallets.items()
+            },
+        }
+
+    @property
+    def user_id(self) -> int:
+        """
+        Идентификатор владельца портфеля.
+        """
+        return self._user_id
+
+    @property
+    def user(self) -> User | None:
+        """
+        Владелец портфеля.
+        """
+        return self._user
+
+    @property
+    def wallets(self) -> dict[str, Wallet]:
+        """
+        Копия словаря кошельков: код валюты - Wallet.
+        """
+        return dict(self._wallets)
+
+    def add_currency(self, currency_code: str) -> Wallet:
+        """
+        Добавить в портфель новый кошелёк с нулевым балансом.
+        """
+        code = Wallet._normalize_currency_code(currency_code)
+        if code in self._wallets:
+            raise ValueError(f"Кошелёк {code} уже есть в портфеле")
+        wallet = Wallet(code)
+        self._wallets[code] = wallet
+        return wallet
+
+    def get_wallet(self, currency_code: str) -> Wallet | None:
+        """
+        Вернуть кошелёк по коду валюты или None, если его нет.
+        """
+        code = Wallet._normalize_currency_code(currency_code)
+        return self._wallets.get(code)
+
+    def get_total_value(
+        self,
+        base_currency: str = BASE_CURRENCY,
+        exchange_rates: dict[str, float] | None = None,
+    ) -> float:
+        """
+        Посчитать общую стоимость всех кошельков в базовой валюте.
+
+        exchange_rates - курсы валют к USD.
+        """
+        rates = exchange_rates if exchange_rates is not None else EXCHANGE_RATES_TO_USD
+        base = Wallet._normalize_currency_code(base_currency)
+        if base not in rates:
+            raise ValueError(f"Неизвестна базовая валюта '{base}'")
+        total_usd = 0.0
+        for code, wallet in self._wallets.items():
+            if code not in rates:
+                raise ValueError(f"Курс для валюты '{code}' недоступен")
+            total_usd += wallet.balance * rates[code]
+        return total_usd / rates[base]
+
+    def __repr__(self) -> str:
+        codes = ", ".join(self._wallets)
+        return f"Portfolio(user_id={self._user_id}, wallets=[{codes}])"
