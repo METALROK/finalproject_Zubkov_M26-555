@@ -10,6 +10,7 @@ from valutatrade_hub.core.models import (
     User,
 )
 from valutatrade_hub.core.utils import validate_amount, validate_currency_code
+from valutatrade_hub.decorators import log_action
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
 
@@ -225,6 +226,7 @@ def _next_user_id(users: list[User]) -> int:
     """
     return max((user.user_id for user in users), default=0) + 1
 
+@log_action("REGISTER")
 def register_user(username: str, password: str) -> User:
     """
     Зарегистрировать пользователя и создать для него пустой портфель.
@@ -248,6 +250,7 @@ def register_user(username: str, password: str) -> User:
     save_portfolios(portfolios)
     return user
 
+@log_action("LOGIN")
 def login_user(username: str, password: str) -> User:
     """
     Проверить имя и пароль; вернуть пользователя при успешном входе.
@@ -318,6 +321,7 @@ def _get_rate_to_base(currency_code: str, base_currency: str) -> float:
             f"Не удалось получить курс для {currency_code}->{base_currency}",
         ) from error
 
+@log_action("BUY", verbose=True)
 def buy_currency(
     user_id: int, currency_code: str, amount: float, base_currency: str | None = None
 ) -> dict[str, Any]:
@@ -345,6 +349,7 @@ def buy_currency(
         "cost": amount * rate,
     }
 
+@log_action("SELL", verbose=True)
 def sell_currency(
     user_id: int, currency_code: str, amount: float, base_currency: str | None = None
 ) -> dict[str, Any]:

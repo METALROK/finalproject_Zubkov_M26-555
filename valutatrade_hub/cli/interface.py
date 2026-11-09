@@ -13,6 +13,7 @@ from valutatrade_hub.core.exceptions import (
 from valutatrade_hub.core.models import User
 from valutatrade_hub.core.utils import format_amount, format_money
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.logging_config import setup_logging
 
 PROMPT = "> "
 EXIT_COMMANDS = {"exit", "quit"}
@@ -318,6 +319,7 @@ def main():
     """
     Точка входа CLI: интерактивный цикл чтения команд.
     """
+    setup_logging()
     parser = build_parser()
     session = CliSession()
     print("ValutaTrade Hub. Введите help для списка команд, exit для выхода.")

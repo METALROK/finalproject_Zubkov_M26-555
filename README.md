@@ -10,6 +10,8 @@ data/                    # users.json, portfolios.json, rates.json
 valutatrade_hub/
   core/                  # models.py, usecases.py, utils.py, currencies.py, exceptions.py
   infra/                 # settings.py (SettingsLoader), database.py (DatabaseManager)
+  logging_config.py      # настройка логов (формат, уровень, ротация)
+  decorators.py          # @log_action
   cli/                   # interface.py
 main.py
 pyproject.toml
@@ -68,3 +70,25 @@ make lint       # uv run ruff check .
 Доступ к JSON-файлам идёт через синглтон `valutatrade_hub.infra.database.DatabaseManager`
 (`load_users/save_users`, `load_portfolios/save_portfolios`, `load_rates/save_rates`),
 запись атомарная (временный файл -> переименование).
+
+## Логирование (`@log_action`)
+
+Доменные операции `register_user`, `login_user`, `buy_currency`, `sell_currency`
+в `core/usecases.py` обёрнуты декоратором `@log_action` (`valutatrade_hub/decorators.py`);
+для `buy`/`sell` включён `verbose=True` (состояние кошелька до/после).
+Декоратор пишет запись на уровне INFO и не глотает исключения - фиксирует их и пробрасывает дальше.
+Пароль в лог не попадает.
+
+Поля: `timestamp`, `action` (REGISTER/LOGIN/BUY/SELL), `user`, `user_id`, `currency`, `amount`,
+`rate`, `base`, `before`/`after` (verbose), `result` (OK/ERROR), `error_type`, `error_message`.
+
+Пример (`logs/actions.log`, формат `string`):
+
+```
+INFO 2026-11-09T22:25:12 BUY user='alice' user_id=1 currency='BTC' amount=0.0500 rate=59337.21 base='USD' before=0.0000 after=0.0500 result=OK
+INFO 2026-11-09T22:25:12 SELL user='alice' user_id=1 currency='BTC' amount=1.0000 result=ERROR error_type='InsufficientFundsError' error_message='Недостаточно средств: доступно 0.0400 BTC, требуется 1.0000 BTC'
+```
+
+Настройка - `valutatrade_hub/logging_config.py` (`setup_logging()`, вызывается при старте CLI):
+формат `string` (по умолчанию) или `json` (`log_format`), уровень INFO (для отладки `log_level = "DEBUG"`),
+ротация по размеру файла: `log_max_bytes` = 1 МБ, `log_backup_count` = 3 (`actions.log.1` ... `actions.log.3`).
