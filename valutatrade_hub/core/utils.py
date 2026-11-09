@@ -9,6 +9,9 @@ from typing import Any
 SALT_LENGTH_BYTES = 8
 CURRENCY_CODE_MIN_LENGTH = 2
 CURRENCY_CODE_MAX_LENGTH = 5
+CRYPTO_CURRENCIES = {"BTC", "ETH"}
+FIAT_DECIMALS = 2
+CRYPTO_DECIMALS = 4
 
 DATA_DIR = Path(os.getenv("VALUTATRADE_DATA_DIR", "data"))
 USERS_FILE = DATA_DIR / "users.json"
@@ -86,3 +89,13 @@ def save_json(path: Path, data: Any):
         json.dump(data, file, ensure_ascii=False, indent=2)
         file.write("\n")
     os.replace(tmp_path, path)
+
+def format_money(currency_code: str, value: float, thousands: bool = False) -> str:
+    """
+    Отформатировать сумму: 2 знака для фиата, 4-8 знаков для криптовалют.
+    """
+    if currency_code in CRYPTO_CURRENCIES:
+        return format_amount(value, min_decimals=CRYPTO_DECIMALS)
+    if thousands:
+        return f"{value:,.{FIAT_DECIMALS}f}"
+    return f"{value:.{FIAT_DECIMALS}f}"

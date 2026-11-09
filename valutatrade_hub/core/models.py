@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from valutatrade_hub.core.utils import (
-    format_amount,
+    format_money,
     generate_salt,
     hash_password,
     validate_amount,
@@ -24,7 +24,6 @@ EXCHANGE_RATES_TO_USD: dict[str, float] = {
     "ETH": 3720.0,
 }
 
-CRYPTO_CURRENCIES = {"BTC", "ETH"}
 BALANCE_PRECISION = 8
 
 
@@ -248,8 +247,9 @@ class Wallet:
         if amount > self._balance:
             raise ValueError(
                 f"Недостаточно средств: доступно "
-                f"{format_amount(self._balance)} {self._currency_code}, "
-                f"требуется {format_amount(amount)} {self._currency_code}"
+                f"{format_money(self._currency_code, self._balance)} "
+                f"{self._currency_code}, требуется "
+                f"{format_money(self._currency_code, amount)} {self._currency_code}"
             )
         self.balance = round(self._balance - amount, BALANCE_PRECISION)
 
@@ -257,7 +257,8 @@ class Wallet:
         """
         Вернуть строку с информацией о текущем балансе.
         """
-        return f"{self._currency_code}: {format_amount(self._balance)}"
+        balance = format_money(self._currency_code, self._balance)
+        return f"{self._currency_code}: {balance}"
 
     def __repr__(self) -> str:
         return f"Wallet(currency_code={self._currency_code!r}, balance={self._balance})"

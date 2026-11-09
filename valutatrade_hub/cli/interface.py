@@ -2,14 +2,12 @@ import argparse
 import shlex
 
 from valutatrade_hub.core import usecases
-from valutatrade_hub.core.models import BASE_CURRENCY, CRYPTO_CURRENCIES, User
-from valutatrade_hub.core.utils import format_amount
+from valutatrade_hub.core.models import BASE_CURRENCY, User
+from valutatrade_hub.core.utils import format_amount, format_money
 
 PROMPT = "> "
 EXIT_COMMANDS = {"exit", "quit"}
 HELP_COMMANDS = {"help", "?"}
-FIAT_DECIMALS = 2
-CRYPTO_DECIMALS = 4
 SEPARATOR_WIDTH = 33
 
 COMMAND_DESCRIPTIONS = {
@@ -17,6 +15,7 @@ COMMAND_DESCRIPTIONS = {
     "login": "войти в систему",
     "show-portfolio": "показать кошельки и итоговую стоимость",
     "buy": "купить валюту",
+    "sell": "продать валюту",
 }
 
 
@@ -78,6 +77,12 @@ def build_parser() -> CliArgumentParser:
     buy.add_argument("--currency", required=True, help="код покупаемой валюты")
     buy.add_argument("--amount", required=True, help="количество (в штуках валюты)")
 
+    sell = subparsers.add_parser(
+        "sell", prog="sell", help=COMMAND_DESCRIPTIONS["sell"]
+    )
+    sell.add_argument("--currency", required=True, help="код продаваемой валюты")
+    sell.add_argument("--amount", required=True, help="количество (в штуках валюты)")
+
     return parser
 
 def handle_register(args: argparse.Namespace, session: CliSession):
@@ -114,16 +119,6 @@ def parse_amount(text: str) -> float:
         return float(text.replace(",", "."))
     except ValueError:
         raise ValueError("'amount' должен быть положительным числом") from None
-
-def format_money(currency_code: str, value: float, thousands: bool = False) -> str:
-    """
-    Отформатировать сумму.
-    """
-    if currency_code in CRYPTO_CURRENCIES:
-        return format_amount(value, min_decimals=CRYPTO_DECIMALS)
-    if thousands:
-        return f"{value:,.{FIAT_DECIMALS}f}"
-    return f"{value:.{FIAT_DECIMALS}f}"
 
 def handle_show_portfolio(args: argparse.Namespace, session: CliSession):
     """
@@ -174,11 +169,45 @@ def handle_buy(args: argparse.Namespace, session: CliSession):
         f"{format_money(base, result['cost'], thousands=True)} {base}"
     )
 
+def print_balance_change(code: str, old_balance: float, new_balance: float):
+    """
+    Вывести строку изменения баланса кошелька.
+    """
+    print(
+        f"- {code}: было {format_money(code, old_balance)} "
+        f"- стало {format_money(code, new_balance)}"
+    )
+
+def handle_sell(args: argparse.Namespace, session: CliSession):
+    """
+    Команда sell.
+    """
+    user = require_login(session)
+    result = usecases.sell_currency(
+        user.user_id, args.currency, parse_amount(args.amount)
+    )
+    code, base = result["currency_code"], result["base"]
+    print(
+        f"Продажа выполнена: {format_money(code, result['amount'])} {code} "
+        f"по курсу {format_amount(result['rate'])} {base}/{code}"
+    )
+    print("Изменения в портфеле:")
+    print_balance_change(code, result["old_balance"], result["new_balance"])
+    if result["base_new_balance"] is not None:
+        print_balance_change(
+            base, result["base_old_balance"], result["base_new_balance"]
+        )
+    print(
+        f"Оценочная выручка: "
+        f"{format_money(base, result['revenue'], thousands=True)} {base}"
+    )
+
 COMMAND_HANDLERS = {
     "register": handle_register,
     "login": handle_login,
     "show-portfolio": handle_show_portfolio,
     "buy": handle_buy,
+    "sell": handle_sell,
 }
 
 def print_help():

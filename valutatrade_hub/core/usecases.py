@@ -257,3 +257,49 @@ def buy_currency(
         "base": base,
         "cost": amount * rate,
     }
+
+def sell_currency(
+    user_id: int, currency_code: str, amount: float, base_currency: str = BASE_CURRENCY
+) -> dict[str, Any]:
+    """
+    Продать amount единиц валюты.
+
+    Если у пользователя есть кошелёк базовой валюты, выручка зачисляется на него.
+    Возвращает словарь: currency_code, amount, old_balance, new_balance,
+    rate, base, revenue, base_old_balance/base_new_balance (None без зачисления).
+    """
+    code = validate_currency_code(currency_code)
+    amount = validate_amount(amount)
+    base = validate_currency_code(base_currency)
+
+    portfolio = get_portfolio(user_id)
+    wallet = portfolio.get_wallet(code)
+    if wallet is None:
+        raise ValueError(
+            f"У вас нет кошелька '{code}'. Добавьте валюту: "
+            "она создаётся автоматически при первой покупке."
+        )
+    rate = _get_rate_to_base(code, base)
+    old_balance = wallet.balance
+    wallet.withdraw(amount)
+    revenue = amount * rate
+
+    base_wallet = portfolio.get_wallet(base) if code != base else None
+    base_old_balance = base_new_balance = None
+    if base_wallet is not None:
+        base_old_balance = base_wallet.balance
+        base_wallet.deposit(revenue)
+        base_new_balance = base_wallet.balance
+    save_portfolio(portfolio)
+
+    return {
+        "currency_code": code,
+        "amount": amount,
+        "old_balance": old_balance,
+        "new_balance": wallet.balance,
+        "rate": rate,
+        "base": base,
+        "revenue": revenue,
+        "base_old_balance": base_old_balance,
+        "base_new_balance": base_new_balance,
+    }
