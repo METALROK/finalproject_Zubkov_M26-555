@@ -1,7 +1,11 @@
 from datetime import datetime
 from typing import Any
 
-from valutatrade_hub.core.currencies import get_currency
+from valutatrade_hub.core.currencies import (
+    Currency,
+    get_currency,
+    get_supported_codes,
+)
 from valutatrade_hub.core.exceptions import (
     InsufficientFundsError,
     RateUnavailableError,
@@ -342,6 +346,7 @@ def buy_currency(
         "rate": rate,
         "base": base,
         "cost": amount * rate,
+        "currency_info": get_currency(code).get_display_info(),
     }
 
 @log_action("SELL", verbose=True)
@@ -390,6 +395,13 @@ def sell_currency(
         "rate": rate,
         "base": base,
         "revenue": revenue,
+        "currency_info": get_currency(code).get_display_info(),
         "base_old_balance": base_old_balance,
         "base_new_balance": base_new_balance,
     }
+
+def list_currencies() -> list[Currency]:
+    """
+    Все валюты из реестра, отсортированные по коду.
+    """
+    return [get_currency(code) for code in get_supported_codes()]

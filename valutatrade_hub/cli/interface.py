@@ -1,13 +1,17 @@
 import argparse
 import shlex
+import sys
 from datetime import datetime
 
+from prettytable import PrettyTable
+
 from valutatrade_hub.core import usecases
-from valutatrade_hub.core.currencies import get_supported_codes
+from valutatrade_hub.core.currencies import CryptoCurrency, get_supported_codes
 from valutatrade_hub.core.exceptions import (
     ApiRequestError,
     CurrencyNotFoundError,
     InsufficientFundsError,
+    RateUnavailableError,
     ValutaTradeError,
 )
 from valutatrade_hub.core.models import User
@@ -19,6 +23,7 @@ PROMPT = "> "
 EXIT_COMMANDS = {"exit", "quit"}
 HELP_COMMANDS = {"help", "?"}
 SEPARATOR_WIDTH = 33
+RATE_COMMANDS = {"buy", "sell", "get-rate"}
 
 COMMAND_DESCRIPTIONS = {
     "register": "зарегистрировать нового пользователя",
@@ -27,6 +32,8 @@ COMMAND_DESCRIPTIONS = {
     "buy": "купить валюту",
     "sell": "продать валюту",
     "get-rate": "получить курс одной валюты к другой",
+    "currencies": "список поддерживаемых валют",
+    "logout": "выйти из учётной записи",
 }
 
 
@@ -107,6 +114,13 @@ def build_parser() -> CliArgumentParser:
         "--to", dest="to_currency", required=True, help="целевая валюта"
     )
 
+    subparsers.add_parser(
+        "currencies", prog="currencies", help=COMMAND_DESCRIPTIONS["currencies"]
+    )
+    subparsers.add_parser(
+        "logout", prog="logout", help=COMMAND_DESCRIPTIONS["logout"]
+    )
+
     return parser
 
 def handle_register(args: argparse.Namespace, session: CliSession):
@@ -183,6 +197,7 @@ def handle_buy(args: argparse.Namespace, session: CliSession):
         f"Покупка выполнена: {format_money(code, result['amount'])} {code} "
         f"по курсу {format_amount(result['rate'])} {base}/{code}"
     )
+    print(f"Валюта: {result['currency_info']}")
     print("Изменения в портфеле:")
     print(
         f"- {code}: было {format_money(code, result['old_balance'])} "
@@ -215,6 +230,7 @@ def handle_sell(args: argparse.Namespace, session: CliSession):
         f"Продажа выполнена: {format_money(code, result['amount'])} {code} "
         f"по курсу {format_amount(result['rate'])} {base}/{code}"
     )
+    print(f"Валюта: {result['currency_info']}")
     print("Изменения в портфеле:")
     print_balance_change(code, result["old_balance"], result["new_balance"])
     if result["base_new_balance"] is not None:
@@ -250,6 +266,25 @@ def handle_get_rate(args: argparse.Namespace, session: CliSession):
     if rate:
         print(f"Обратный курс {to_code}->{from_code}: {format_amount(1 / rate)}")
 
+def handle_currencies(args: argparse.Namespace, session: CliSession):
+    """
+    Команда currencies.
+    """
+    table = PrettyTable(["Код", "Тип", "Описание"])
+    table.align = "l"
+    for currency in usecases.list_currencies():
+        kind = "CRYPTO" if isinstance(currency, CryptoCurrency) else "FIAT"
+        table.add_row([currency.code, kind, currency.get_display_info()])
+    print(table)
+
+def handle_logout(args: argparse.Namespace, session: CliSession):
+    """
+    Команда logout.
+    """
+    user = require_login(session)
+    session.current_user = None
+    print(f"Вы вышли из учётной записи '{user.username}'")
+
 COMMAND_HANDLERS = {
     "register": handle_register,
     "login": handle_login,
@@ -257,6 +292,8 @@ COMMAND_HANDLERS = {
     "buy": handle_buy,
     "sell": handle_sell,
     "get-rate": handle_get_rate,
+    "currencies": handle_currencies,
+    "logout": handle_logout,
 }
 
 def print_help():
@@ -269,6 +306,27 @@ def print_help():
     print(f"  {'help':<16} показать эту справку")
     print(f"  {'exit':<16} выйти из программы")
     print("Подробнее о команде: <command> --help")
+
+def print_error(command: str, error: Exception):
+    """
+    Показать сообщение об ошибке с подсказкой по контексту команды.
+    """
+    print(error)
+    if isinstance(error, InsufficientFundsError):
+        return
+    if isinstance(error, CurrencyNotFoundError):
+        print(f"Поддерживаемые валюты: {', '.join(get_supported_codes())}")
+        if command == "get-rate":
+            print("Справка: get-rate --help")
+        else:
+            print("Подробнее о валютах: currencies")
+    elif isinstance(error, ApiRequestError):
+        if command in RATE_COMMANDS:
+            ttl = SettingsLoader().get("rates_ttl_seconds")
+            print(f"Курсы в кеше старше {ttl} с, а обновить их не удалось.")
+        print("Повторите попытку позже или проверьте подключение к сети.")
+    elif isinstance(error, RateUnavailableError):
+        print("Подробнее о валютах: currencies")
 
 def execute_command(line: str, parser: CliArgumentParser, session: CliSession):
     """
@@ -298,22 +356,16 @@ def execute_command(line: str, parser: CliArgumentParser, session: CliSession):
 
     try:
         COMMAND_HANDLERS[args.command](args, session)
-    except InsufficientFundsError as error:
-        print(error)
-    except CurrencyNotFoundError as error:
-        print(error)
-        print(f"Поддерживаемые валюты: {', '.join(get_supported_codes())}")
-        print("Справка по курсам: get-rate --help")
-    except ApiRequestError as error:
-        print(error)
-        print("Повторите попытку позже или проверьте подключение к сети.")
     except (ValutaTradeError, ValueError, TypeError) as error:
-        print(error)
+        print_error(args.command, error)
 
 def main():
     """
     Точка входа CLI: интерактивный цикл чтения команд.
     """
+    if hasattr(sys.stdout, "reconfigure"):
+        # Символы, которых нет в кодировке консоли, заменяются на "?",
+        sys.stdout.reconfigure(errors="replace")
     setup_logging()
     parser = build_parser()
     session = CliSession()
