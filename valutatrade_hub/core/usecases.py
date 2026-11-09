@@ -19,6 +19,8 @@ from valutatrade_hub.core.utils import (
 
 RATE_SOURCE_CACHE = "cache"
 RATE_SOURCE_STUB = "stub"
+RATES_STUB_SOURCE_NAME = "StubRatesProvider"
+RATES_TTL_SECONDS = 300
 
 
 def load_users() -> list[User]:
@@ -89,19 +91,49 @@ def _rate_to_usd(code: str, cache: dict[str, Any]) -> tuple[float, str | None, s
         return EXCHANGE_RATES_TO_USD[code], None, RATE_SOURCE_STUB
     raise ValueError(f"Курс для валюты '{code}' недоступен")
 
-def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
+def _now_iso() -> str:
     """
-    Единый контракт получения курса FROM -> TO.
+    Текущее время в ISO-формате с точностью до секунды.
     """
-    from_code = validate_currency_code(from_currency)
-    to_code = validate_currency_code(to_currency)
-    result: dict[str, Any] = {"from": from_code, "to": to_code}
+    return datetime.now().replace(microsecond=0).isoformat()
 
-    if from_code == to_code:
-        updated_at = datetime.now().replace(microsecond=0).isoformat()
-        return result | {"rate": 1.0, "updated_at": updated_at, "source": "fixed"}
+def _is_fresh(updated_at: str | None, ttl_seconds: int = RATES_TTL_SECONDS) -> bool:
+    """
+    Проверить, что курс обновлялся не раньше, чем ttl_seconds назад.
+    """
+    if not updated_at:
+        return False
+    try:
+        moment = datetime.fromisoformat(updated_at)
+    except ValueError:
+        return False
+    now = datetime.now(moment.tzinfo) if moment.tzinfo else datetime.now()
+    return (now - moment).total_seconds() <= ttl_seconds
 
+def refresh_rates_cache() -> dict[str, Any]:
+    """
+    Обновить кеш rates.json свежими курсами.
+
+    Пока Parser Service не подключён, курсы берутся из заглушки
+    EXCHANGE_RATES_TO_USD.
+    """
     cache = load_rates_cache()
+    now = _now_iso()
+    for code, rate in EXCHANGE_RATES_TO_USD.items():
+        if code != BASE_CURRENCY:
+            cache[f"{code}_{BASE_CURRENCY}"] = {"rate": rate, "updated_at": now}
+    cache.pop("source", None)
+    cache.pop("last_refresh", None)
+    cache["source"] = RATES_STUB_SOURCE_NAME
+    cache["last_refresh"] = now
+    save_json(RATES_FILE, cache)
+    return cache
+
+def _compute_rate(from_code: str, to_code: str, cache: dict[str, Any]) -> dict:
+    """
+    Посчитать курс FROM -> TO по кешу.
+    """
+    result: dict[str, Any] = {"from": from_code, "to": to_code}
     pair = _read_pair(cache, from_code, to_code)
     if pair is not None:
         return result | pair | {"source": RATE_SOURCE_CACHE}
@@ -116,6 +148,38 @@ def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
         "source": RATE_SOURCE_STUB if is_stub else RATE_SOURCE_CACHE,
     }
 
+def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
+    """
+    Единый контракт получения курса FROM -> TO.
+
+    Берёт курс из кеша rates.json, если он моложе TTL; иначе обновляет кеш
+    и считает курс заново. Возвращает словарь: from, to, rate,
+    updated_at, source.
+    """
+    from_code = validate_currency_code(from_currency)
+    to_code = validate_currency_code(to_currency)
+    if from_code == to_code:
+        return {
+            "from": from_code,
+            "to": to_code,
+            "rate": 1.0,
+            "updated_at": _now_iso(),
+            "source": "fixed",
+        }
+
+    try:
+        result = _compute_rate(from_code, to_code, load_rates_cache())
+        if result["source"] == RATE_SOURCE_CACHE and _is_fresh(result["updated_at"]):
+            return result
+    except ValueError:
+        pass
+
+    try:
+        return _compute_rate(from_code, to_code, refresh_rates_cache())
+    except ValueError as error:
+        raise ValueError(
+            f"Курс {from_code}->{to_code} недоступен. Повторите попытку позже."
+        ) from error
 
 def get_rates_to_usd() -> dict[str, float]:
     """
@@ -228,7 +292,7 @@ def _get_rate_to_base(currency_code: str, base_currency: str) -> float:
         return get_rate(currency_code, base_currency)["rate"]
     except ValueError as error:
         raise ValueError(
-            f"Не удалось получить курс для {currency_code}→{base_currency}"
+            f"Не удалось получить курс для {currency_code}->{base_currency}"
         ) from error
 
 def buy_currency(

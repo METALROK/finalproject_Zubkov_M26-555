@@ -1,5 +1,6 @@
 import argparse
 import shlex
+from datetime import datetime
 
 from valutatrade_hub.core import usecases
 from valutatrade_hub.core.models import BASE_CURRENCY, User
@@ -16,6 +17,7 @@ COMMAND_DESCRIPTIONS = {
     "show-portfolio": "показать кошельки и итоговую стоимость",
     "buy": "купить валюту",
     "sell": "продать валюту",
+    "get-rate": "получить курс одной валюты к другой",
 }
 
 
@@ -83,6 +85,16 @@ def build_parser() -> CliArgumentParser:
     sell.add_argument("--currency", required=True, help="код продаваемой валюты")
     sell.add_argument("--amount", required=True, help="количество (в штуках валюты)")
 
+    get_rate = subparsers.add_parser(
+        "get-rate", prog="get-rate", help=COMMAND_DESCRIPTIONS["get-rate"]
+    )
+    get_rate.add_argument(
+        "--from", dest="from_currency", required=True, help="исходная валюта"
+    )
+    get_rate.add_argument(
+        "--to", dest="to_currency", required=True, help="целевая валюта"
+    )
+
     return parser
 
 def handle_register(args: argparse.Namespace, session: CliSession):
@@ -142,7 +154,7 @@ def handle_show_portfolio(args: argparse.Namespace, session: CliSession):
     ]
     width = max(len(label) for label, _ in rows)
     for label, value in rows:
-        print(f"- {label:<{width}}  → {value} {base}")
+        print(f"- {label:<{width}}  -> {value} {base}")
     print("-" * SEPARATOR_WIDTH)
     print(f"ИТОГО: {format_money(base, summary['total'], thousands=True)} {base}")
 
@@ -162,7 +174,7 @@ def handle_buy(args: argparse.Namespace, session: CliSession):
     print("Изменения в портфеле:")
     print(
         f"- {code}: было {format_money(code, result['old_balance'])} "
-        f"→ стало {format_money(code, result['new_balance'])}"
+        f"- стало {format_money(code, result['new_balance'])}"
     )
     print(
         f"Оценочная стоимость покупки: "
@@ -202,12 +214,37 @@ def handle_sell(args: argparse.Namespace, session: CliSession):
         f"{format_money(base, result['revenue'], thousands=True)} {base}"
     )
 
+def format_timestamp(value: str | None) -> str:
+    """
+    Привести ISO-время к виду 'YYYY-MM-DD HH:MM:SS'.
+    """
+    if not value:
+        return "неизвестно"
+    try:
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value
+
+def handle_get_rate(args: argparse.Namespace, session: CliSession):
+    """
+    Команда get-rate.
+    """
+    result = usecases.get_rate(args.from_currency, args.to_currency)
+    from_code, to_code, rate = result["from"], result["to"], result["rate"]
+    print(
+        f"Курс {from_code}->{to_code}: {format_amount(rate)} "
+        f"(обновлено: {format_timestamp(result['updated_at'])})"
+    )
+    if rate:
+        print(f"Обратный курс {to_code}->{from_code}: {format_amount(1 / rate)}")
+
 COMMAND_HANDLERS = {
     "register": handle_register,
     "login": handle_login,
     "show-portfolio": handle_show_portfolio,
     "buy": handle_buy,
     "sell": handle_sell,
+    "get-rate": handle_get_rate,
 }
 
 def print_help():
