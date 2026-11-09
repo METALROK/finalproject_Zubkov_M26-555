@@ -23,6 +23,7 @@ EXCHANGE_RATES_TO_USD: dict[str, float] = {
     "RUB": 0.01016,
     "BTC": 59337.21,
     "ETH": 3720.0,
+    "SOL": 145.12,
 }
 
 BALANCE_PRECISION = 8

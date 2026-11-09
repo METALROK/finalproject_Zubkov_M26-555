@@ -6,10 +6,11 @@
 ## Структура
 
 ```
-data/                    # users.json, portfolios.json, rates.json
+data/                    # users.json, portfolios.json, rates.json, exchange_rates.json
 valutatrade_hub/
   core/                  # models.py, usecases.py, utils.py, currencies.py, exceptions.py
   infra/                 # settings.py (SettingsLoader), database.py (DatabaseManager)
+  parser_service/        # config.py (ParserConfig), API-клиенты, обновление курсов
   logging_config.py      # настройка логов (формат, уровень, ротация)
   decorators.py          # @log_action
   cli/                   # interface.py
@@ -93,3 +94,20 @@ INFO 2026-11-09T22:25:12 SELL user='alice' user_id=1 currency='BTC' amount=1.000
 Настройка - `valutatrade_hub/logging_config.py` (`setup_logging()`, вызывается при старте CLI):
 формат `string` (по умолчанию) или `json` (`log_format`), уровень INFO (для отладки `log_level = "DEBUG"`),
 ротация по размеру файла: `log_max_bytes` = 1 МБ, `log_backup_count` = 3 (`actions.log.1` ... `actions.log.3`).
+
+## Parser Service: ключ API и конфигурация
+
+Курсы получаются из двух источников: **CoinGecko** (криптовалюты, ключ не нужен)
+и **ExchangeRate-API** (фиат, нужен бесплатный ключ с https://www.exchangerate-api.com/).
+
+Ключ **не хранится в коде**. Задайте его одним из способов:
+
+- переменная окружения: `export EXCHANGERATE_API_KEY=ваш_ключ` (Git Bash) /
+  `set EXCHANGERATE_API_KEY=ваш_ключ` (cmd);
+- файл `.env` в корне проекта (он в `.gitignore`): скопируйте `.env.example` в `.env`
+  и впишите ключ.
+
+Все параметры сервиса - в `valutatrade_hub/parser_service/config.py` (`ParserConfig`):
+эндпоинты, `BASE_CURRENCY = "USD"`, `FIAT_CURRENCIES = ("EUR", "GBP", "RUB")`,
+`CRYPTO_CURRENCIES = ("BTC", "ETH", "SOL")`, `CRYPTO_ID_MAP` (тикер -> ID CoinGecko),
+`REQUEST_TIMEOUT = 10` с, пути к `data/rates.json` и `data/exchange_rates.json`.
