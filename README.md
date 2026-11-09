@@ -8,7 +8,8 @@
 ```
 data/                    # users.json, portfolios.json, rates.json
 valutatrade_hub/
-  core/                  # models.py, usecases.py, utils.py
+  core/                  # models.py, usecases.py, utils.py, currencies.py, exceptions.py
+  infra/                 # settings.py (SettingsLoader), database.py (DatabaseManager)
   cli/                   # interface.py
 main.py
 pyproject.toml
@@ -43,3 +44,27 @@ make lint       # uv run ruff check .
 | `RateUnavailableError` | `get_rate()`, `buy`, `sell` - курса нет ни в кеше, ни у источника | текст ошибки |
 
 Все доменные исключения наследуются от `ValutaTradeError`.
+
+## Конфигурация (`SettingsLoader`)
+
+Настройки читаются один раз синглтоном `valutatrade_hub.infra.settings.SettingsLoader`
+из секции `[tool.valutatrade]` в `pyproject.toml`. Любой ключ можно переопределить
+переменной окружения `VALUTATRADE_<КЛЮЧ>` (например, `VALUTATRADE_RATES_TTL_SECONDS=60`).
+
+| Ключ | По умолчанию | Назначение |
+|---|---|---|
+| `data_dir` | `data` | каталог с JSON-файлами |
+| `users_file` / `portfolios_file` / `rates_file` | `users.json` / `portfolios.json` / `rates.json` | файлы данных |
+| `exchange_rates_file` | `exchange_rates.json` | история курсов (Parser Service) |
+| `rates_ttl_seconds` | `300` | время «свежести» курса в кеше |
+| `default_base_currency` | `USD` | базовая валюта по умолчанию |
+| `log_dir` / `log_file` | `logs` / `actions.log` | путь к логам |
+| `log_format` | `string` | формат логов: `string` или `json` |
+| `log_level` | `INFO` | уровень логирования |
+| `log_max_bytes` / `log_backup_count` | `1048576` / `3` | ротация логов |
+
+Методы: `get(key, default)`, `reload()`, `data_path(file_key)`, `log_path()`, `as_dict()`.
+
+Доступ к JSON-файлам идёт через синглтон `valutatrade_hub.infra.database.DatabaseManager`
+(`load_users/save_users`, `load_portfolios/save_portfolios`, `load_rates/save_rates`),
+запись атомарная (временный файл -> переименование).

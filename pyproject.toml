@@ -7,6 +7,7 @@ authors = [{ name = "Andrey Zubkov" }]
 requires-python = ">=3.10"
 dependencies = [
     "prettytable>=3.10",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.scripts]
@@ -23,6 +24,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["valutatrade_hub"]
+
+[tool.valutatrade]
+data_dir = "data"
+users_file = "users.json"
+portfolios_file = "portfolios.json"
+rates_file = "rates.json"
+exchange_rates_file = "exchange_rates.json"
+rates_ttl_seconds = 300
+default_base_currency = "USD"
+log_dir = "logs"
+log_file = "actions.log"
+log_format = "string"
+log_level = "INFO"
+log_max_bytes = 1048576
+log_backup_count = 3
 
 [tool.ruff]
 line-length = 88

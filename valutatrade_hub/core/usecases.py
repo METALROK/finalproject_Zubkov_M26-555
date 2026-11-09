@@ -9,33 +9,30 @@ from valutatrade_hub.core.models import (
     Portfolio,
     User,
 )
-from valutatrade_hub.core.utils import (
-    PORTFOLIOS_FILE,
-    RATES_FILE,
-    USERS_FILE,
-    load_json,
-    save_json,
-    validate_amount,
-    validate_currency_code,
-)
+from valutatrade_hub.core.utils import validate_amount, validate_currency_code
+from valutatrade_hub.infra.database import DatabaseManager
+from valutatrade_hub.infra.settings import SettingsLoader
 
 RATE_SOURCE_CACHE = "cache"
 RATE_SOURCE_STUB = "stub"
 RATES_STUB_SOURCE_NAME = "StubRatesProvider"
-RATES_TTL_SECONDS = 300
+
+# Синглтоны: конфигурация (TTL курсов, базовая валюта, пути) и хранилище JSON.
+settings = SettingsLoader()
+db = DatabaseManager()
 
 
 def load_users() -> list[User]:
     """
     Загрузить всех пользователей из users.json.
     """
-    return [User.from_dict(item) for item in load_json(USERS_FILE, [])]
+    return [User.from_dict(item) for item in db.load_users()]
 
 def save_users(users: list[User]):
     """
     Сохранить список пользователей в users.json.
     """
-    save_json(USERS_FILE, [user.to_dict() for user in users])
+    db.save_users([user.to_dict() for user in users])
 
 def find_user_by_username(username: str) -> User | None:
     """
@@ -51,19 +48,19 @@ def load_portfolios() -> list[Portfolio]:
     """
     Загрузить все портфели из portfolios.json.
     """
-    return [Portfolio.from_dict(item) for item in load_json(PORTFOLIOS_FILE, [])]
+    return [Portfolio.from_dict(item) for item in db.load_portfolios()]
 
 def save_portfolios(portfolios: list[Portfolio]):
     """
     Сохранить список портфелей в portfolios.json.
     """
-    save_json(PORTFOLIOS_FILE, [portfolio.to_dict() for portfolio in portfolios])
+    db.save_portfolios([portfolio.to_dict() for portfolio in portfolios])
 
 def load_rates_cache() -> dict[str, Any]:
     """
     Загрузить локальный кеш курсов из rates.json.
     """
-    return load_json(RATES_FILE, {})
+    return db.load_rates()
 
 def _read_pair(cache: dict[str, Any], from_code: str, to_code: str) -> dict | None:
     """
@@ -93,6 +90,12 @@ def _rate_to_usd(code: str, cache: dict[str, Any]) -> tuple[float, str | None, s
         return EXCHANGE_RATES_TO_USD[code], None, RATE_SOURCE_STUB
     raise ValueError(f"Курс для валюты '{code}' недоступен")
 
+def _default_base() -> str:
+    """
+    Базовая валюта по умолчанию из настроек.
+    """
+    return settings.get("default_base_currency")
+
 def _resolve_currency(code: str) -> str:
     """
     Проверить код по реестру валют; неизвестный код выбрасывает CurrencyNotFoundError.
@@ -105,10 +108,14 @@ def _now_iso() -> str:
     """
     return datetime.now().replace(microsecond=0).isoformat()
 
-def _is_fresh(updated_at: str | None, ttl_seconds: int = RATES_TTL_SECONDS) -> bool:
+def _is_fresh(updated_at: str | None, ttl_seconds: int | None = None) -> bool:
     """
     Проверить, что курс обновлялся не раньше, чем ttl_seconds назад.
+
+    По умолчанию TTL берётся из настроек (rates_ttl_seconds).
     """
+    if ttl_seconds is None:
+        ttl_seconds = settings.get("rates_ttl_seconds")
     if not updated_at:
         return False
     try:
@@ -134,7 +141,7 @@ def refresh_rates_cache() -> dict[str, Any]:
     cache.pop("last_refresh", None)
     cache["source"] = RATES_STUB_SOURCE_NAME
     cache["last_refresh"] = now
-    save_json(RATES_FILE, cache)
+    db.save_rates(cache)
     return cache
 
 def _compute_rate(from_code: str, to_code: str, cache: dict[str, Any]) -> dict:
@@ -262,12 +269,12 @@ def get_portfolio(user_id: int) -> Portfolio:
     return Portfolio(user_id)
 
 def get_portfolio_summary(
-    user_id: int, base_currency: str = BASE_CURRENCY
+    user_id: int, base_currency: str | None = None
 ) -> dict[str, Any]:
     """
     Сводка по портфелю: балансы кошельков и их стоимость в базовой валюте.
     """
-    base = validate_currency_code(base_currency)
+    base = validate_currency_code(base_currency or _default_base())
     rates = get_rates_to_usd()
     if base not in rates:
         raise ValueError(f"Неизвестная базовая валюта '{base}'")
@@ -312,14 +319,14 @@ def _get_rate_to_base(currency_code: str, base_currency: str) -> float:
         ) from error
 
 def buy_currency(
-    user_id: int, currency_code: str, amount: float, base_currency: str = BASE_CURRENCY
+    user_id: int, currency_code: str, amount: float, base_currency: str | None = None
 ) -> dict[str, Any]:
     """
     Купить amount единиц валюты: пополнить или создать кошелёк.
     """
     code = _resolve_currency(currency_code)
     amount = validate_amount(amount)
-    base = _resolve_currency(base_currency)
+    base = _resolve_currency(base_currency or _default_base())
     rate = _get_rate_to_base(code, base)
 
     portfolio = get_portfolio(user_id)
@@ -339,7 +346,7 @@ def buy_currency(
     }
 
 def sell_currency(
-    user_id: int, currency_code: str, amount: float, base_currency: str = BASE_CURRENCY
+    user_id: int, currency_code: str, amount: float, base_currency: str | None = None
 ) -> dict[str, Any]:
     """
     Продать amount единиц валюты.
@@ -350,7 +357,7 @@ def sell_currency(
     """
     code = _resolve_currency(currency_code)
     amount = validate_amount(amount)
-    base = _resolve_currency(base_currency)
+    base = _resolve_currency(base_currency or _default_base())
 
     portfolio = get_portfolio(user_id)
     wallet = portfolio.get_wallet(code)

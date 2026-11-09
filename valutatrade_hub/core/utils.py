@@ -12,11 +12,6 @@ CURRENCY_CODE_MAX_LENGTH = 5
 FIAT_DECIMALS = 2
 CRYPTO_DECIMALS = 4
 
-DATA_DIR = Path(os.getenv("VALUTATRADE_DATA_DIR", "data"))
-USERS_FILE = DATA_DIR / "users.json"
-PORTFOLIOS_FILE = DATA_DIR / "portfolios.json"
-RATES_FILE = DATA_DIR / "rates.json"
-
 
 def generate_salt() -> str:
     """

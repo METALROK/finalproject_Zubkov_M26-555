@@ -10,8 +10,9 @@ from valutatrade_hub.core.exceptions import (
     InsufficientFundsError,
     ValutaTradeError,
 )
-from valutatrade_hub.core.models import BASE_CURRENCY, User
+from valutatrade_hub.core.models import User
 from valutatrade_hub.core.utils import format_amount, format_money
+from valutatrade_hub.infra.settings import SettingsLoader
 
 PROMPT = "> "
 EXIT_COMMANDS = {"exit", "quit"}
@@ -78,8 +79,11 @@ def build_parser() -> CliArgumentParser:
     )
     show_portfolio.add_argument(
         "--base",
-        default=BASE_CURRENCY,
-        help=f"базовая валюта (по умолчанию {BASE_CURRENCY})",
+        default=None,
+        help=(
+            "базовая валюта (по умолчанию "
+            f"{SettingsLoader().get('default_base_currency')})"
+        ),
     )
 
     buy = subparsers.add_parser("buy", prog="buy", help=COMMAND_DESCRIPTIONS["buy"])
