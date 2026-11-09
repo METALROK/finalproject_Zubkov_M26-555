@@ -1,6 +1,5 @@
-"""Командный интерфейс (CLI) ValutaTrade Hub."""
-
-
 def main() -> None:
-    """Точка входа CLI."""
+    """
+    Точка входа CLI.
+    """
     print("ValutaTrade Hub: CLI в разработке.")
