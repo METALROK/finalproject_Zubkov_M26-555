@@ -172,3 +172,38 @@ def login_user(username: str, password: str) -> User:
     if not user.verify_password(password):
         raise ValueError("Неверный пароль")
     return user
+
+def get_portfolio(user_id: int) -> Portfolio:
+    """
+    Вернуть портфель пользователя.
+    """
+    for portfolio in load_portfolios():
+        if portfolio.user_id == user_id:
+            return portfolio
+    return Portfolio(user_id)
+
+def get_portfolio_summary(
+    user_id: int, base_currency: str = BASE_CURRENCY
+) -> dict[str, Any]:
+    """
+    Сводка по портфелю: балансы кошельков и их стоимость в базовой валюте.
+    """
+    base = validate_currency_code(base_currency)
+    rates = get_rates_to_usd()
+    if base not in rates:
+        raise ValueError(f"Неизвестная базовая валюта '{base}'")
+
+    portfolio = get_portfolio(user_id)
+    wallets = []
+    for code, wallet in portfolio.wallets.items():
+        if code not in rates:
+            raise ValueError(f"Курс для валюты '{code}' недоступен")
+        wallets.append(
+            {
+                "currency_code": code,
+                "balance": wallet.balance,
+                "value": wallet.balance * rates[code] / rates[base],
+            }
+        )
+    total = portfolio.get_total_value(base, exchange_rates=rates)
+    return {"base": base, "wallets": wallets, "total": total}

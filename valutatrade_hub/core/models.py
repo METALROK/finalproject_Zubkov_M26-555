@@ -24,6 +24,8 @@ EXCHANGE_RATES_TO_USD: dict[str, float] = {
     "ETH": 3720.0,
 }
 
+CRYPTO_CURRENCIES = {"BTC", "ETH"}
+
 
 class User:
     """
@@ -363,7 +365,7 @@ class Portfolio:
         rates = exchange_rates if exchange_rates is not None else EXCHANGE_RATES_TO_USD
         base = validate_currency_code(base_currency)
         if base not in rates:
-            raise ValueError(f"Неизвестна базовая валюта '{base}'")
+            raise ValueError(f"Неизвестная базовая валюта '{base}'")
         total_usd = 0.0
         for code, wallet in self._wallets.items():
             if code not in rates:
