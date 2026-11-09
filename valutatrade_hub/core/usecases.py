@@ -161,3 +161,14 @@ def register_user(username: str, password: str) -> User:
     save_users(users)
     save_portfolios(portfolios)
     return user
+
+def login_user(username: str, password: str) -> User:
+    """
+    Проверить имя и пароль; вернуть пользователя при успешном входе.
+    """
+    user = find_user_by_username(username)
+    if user is None:
+        raise ValueError(f"Пользователь '{username.strip()}' не найден")
+    if not user.verify_password(password):
+        raise ValueError("Неверный пароль")
+    return user

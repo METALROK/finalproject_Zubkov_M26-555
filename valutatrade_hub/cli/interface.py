@@ -10,6 +10,7 @@ HELP_COMMANDS = {"help", "?"}
 
 COMMAND_DESCRIPTIONS = {
     "register": "зарегистрировать нового пользователя",
+    "login": "войти в систему",
 }
 
 
@@ -50,6 +51,12 @@ def build_parser() -> CliArgumentParser:
     register.add_argument("--username", required=True, help="имя пользователя")
     register.add_argument("--password", required=True, help="пароль (≥ 4 символов)")
 
+    login = subparsers.add_parser(
+        "login", prog="login", help=COMMAND_DESCRIPTIONS["login"]
+    )
+    login.add_argument("--username", required=True, help="имя пользователя")
+    login.add_argument("--password", required=True, help="пароль")
+
     return parser
 
 def handle_register(args: argparse.Namespace, session: CliSession):
@@ -62,8 +69,17 @@ def handle_register(args: argparse.Namespace, session: CliSession):
         f"Войдите: login --username {shlex.quote(user.username)} --password ****"
     )
 
+def handle_login(args: argparse.Namespace, session: CliSession):
+    """
+    Команда login: войти и зафиксировать текущую сессию.
+    """
+    user = usecases.login_user(args.username, args.password)
+    session.current_user = user
+    print(f"Вы вошли как '{user.username}'")
+
 COMMAND_HANDLERS = {
     "register": handle_register,
+    "login": handle_login,
 }
 
 def print_help():
