@@ -36,6 +36,7 @@ make lint       # uv run ruff check .
 | `buy` | `buy --currency BTC --amount 0.05` | `Сначала выполните login`; `'amount' должен быть положительным числом`; `Неизвестная валюта 'XYZ'`; `Не удалось получить курс для BTC->USD` |
 | `sell` | `sell --currency BTC --amount 0.01` | `Сначала выполните login`; `У вас нет кошелька 'BTC'. ...`; `Недостаточно средств: доступно 0.0400 BTC, требуется 0.0500 BTC`; `Неизвестная валюта 'XYZ'` |
 | `get-rate` | `get-rate --from USD --to BTC` | `Неизвестная валюта 'XYZ'`; `Курс USD->BTC недоступен. Повторите попытку позже.`; `Ошибка при обращении к внешнему API: ...` |
+| `update-rates` | `update-rates`, `update-rates --source coingecko` | `Неизвестный источник 'x'. Доступны: coingecko, exchangerate`; `Ошибка при обращении к внешнему API: ...` + `Update failed. Check logs/parser.log for details.`; при сбое части источников - `Update completed with errors. Check logs/parser.log for details.` |
 
 ### Доменные исключения (`valutatrade_hub/core/exceptions.py`)
 
@@ -62,7 +63,7 @@ make lint       # uv run ruff check .
 | `exchange_rates_file` | `exchange_rates.json` | история курсов (Parser Service) |
 | `rates_ttl_seconds` | `300` | время «свежести» курса в кеше |
 | `default_base_currency` | `USD` | базовая валюта по умолчанию |
-| `log_dir` / `log_file` | `logs` / `actions.log` | путь к логам |
+| `log_dir` / `log_file` / `parser_log_file` | `logs` / `actions.log` / `parser.log` | пути к логам действий и Parser Service |
 | `log_format` | `string` | формат логов: `string` или `json` |
 | `log_level` | `INFO` | уровень логирования |
 | `log_max_bytes` / `log_backup_count` | `1048576` / `3` | ротация логов |

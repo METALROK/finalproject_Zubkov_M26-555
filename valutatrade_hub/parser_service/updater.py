@@ -1,8 +1,10 @@
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from valutatrade_hub.core.exceptions import ApiRequestError
 from valutatrade_hub.core.utils import utc_iso
+from valutatrade_hub.infra.settings import SettingsLoader
 from valutatrade_hub.logging_config import PARSER_LOGGER_NAME
 from valutatrade_hub.parser_service.api_clients import (
     BaseApiClient,
@@ -18,8 +20,37 @@ from valutatrade_hub.parser_service.storage import (
 
 PARSER_SOURCE_NAME = "ParserService"
 
+CLIENT_FACTORIES: dict[str, type[BaseApiClient]] = {
+    "coingecko": CoinGeckoClient,
+    "exchangerate": ExchangeRateApiClient,
+}
+
+ProgressCallback = Callable[[str, str], None]
+
 logger = logging.getLogger(PARSER_LOGGER_NAME)
 logger.addHandler(logging.NullHandler())
+
+
+def create_clients(
+    source: str | None = None, config: ParserConfig | None = None
+) -> list[BaseApiClient]:
+    """
+    Клиенты API: все или только один источник.
+    """
+    config = config or ParserConfig()
+    if source is None:
+        return [factory(config) for factory in CLIENT_FACTORIES.values()]
+    key = source.strip().lower()
+    if key not in CLIENT_FACTORIES:
+        available = ", ".join(CLIENT_FACTORIES)
+        raise ValueError(f"Неизвестный источник '{source}'. Доступны: {available}")
+    return [CLIENT_FACTORIES[key](config)]
+
+def _short_reason(error: ApiRequestError, source: str) -> str:
+    """
+    Причина ошибки без повторного имени источника.
+    """
+    return error.reason.removeprefix(f"{source}: ")
 
 
 class RatesUpdater:
@@ -33,22 +64,35 @@ class RatesUpdater:
         clients: list[BaseApiClient] | None = None,
         storage: RatesStorage | None = None,
         config: ParserConfig | None = None,
+        progress: ProgressCallback | None = None,
     ):
         self.config = config or ParserConfig()
-        if clients is None:
-            clients = [
-                CoinGeckoClient(self.config),
-                ExchangeRateApiClient(self.config),
-            ]
-        self.clients = clients
+        self.clients = (
+            clients if clients is not None else create_clients(None, self.config)
+        )
         self.storage = storage or RatesStorage(self.config)
+        self.progress = progress
+
+    def _report(self, level: int, message: str):
+        """
+        Записать шаг в parser.log и передать его в progress.
+        """
+        logger.log(level, message)
+        if self.progress is not None:
+            self.progress(logging.getLevelName(level), message)
+
+    def _relative(self, path) -> str:
+        try:
+            return path.relative_to(SettingsLoader().project_root).as_posix()
+        except ValueError:
+            return str(path)
 
     def run_update(self) -> dict[str, Any]:
         """
         Обновить курсы от всех клиентов.
         """
         refreshed_at = utc_iso()
-        logger.info("PARSER Старт обновления курсов (клиентов: %d)", len(self.clients))
+        self._report(logging.INFO, "Starting rates update...")
 
         pairs: dict[str, dict[str, Any]] = {}
         history: list[dict[str, Any]] = []
@@ -60,12 +104,17 @@ class RatesUpdater:
             try:
                 rates = client.fetch_rates()
             except ApiRequestError as error:
-                errors[source] = error.reason
-                logger.error("PARSER %s: ошибка - %s", source, error)
+                errors[source] = _short_reason(error, source)
+                self._report(
+                    logging.ERROR, f"Failed to fetch from {source}: {errors[source]}"
+                )
                 continue
             except Exception as error:  # отказоустойчивость: не роняем остальных
                 errors[source] = f"{type(error).__name__}: {error}"
-                logger.exception("PARSER %s: непредвиденная ошибка", source)
+                logger.exception("Unexpected error in %s", source)
+                self._report(
+                    logging.ERROR, f"Failed to fetch from {source}: {errors[source]}"
+                )
                 continue
 
             for pair, rate in rates.items():
@@ -87,18 +136,22 @@ class RatesUpdater:
                     )
                 )
             updated[source] = len(rates)
-            logger.info(
-                "PARSER %s: получено курсов %d (%s)",
-                source,
-                len(rates),
-                ", ".join(sorted(rates)),
+            self._report(
+                logging.INFO, f"Fetching from {source}... OK ({len(rates)} rates)"
             )
 
         if not pairs:
-            logger.error("PARSER Обновление не выполнено: ни один источник не ответил")
-            details = "; ".join(errors.values()) or "нет настроенных источников"
-            raise ApiRequestError(f"не удалось обновить курсы ({details})")
+            self._report(logging.ERROR, "Update failed: no source returned rates")
+            details = "; ".join(f"{s}: {r}" for s, r in errors.items())
+            raise ApiRequestError(
+                f"не удалось обновить курсы ({details or 'нет источников'})"
+            )
 
+        self._report(
+            logging.INFO,
+            f"Writing {len(pairs)} rates to "
+            f"{self._relative(self.config.RATES_FILE_PATH)}...",
+        )
         snapshot = self.storage.load_snapshot()
         snapshot[PAIRS_KEY].update(pairs)
         snapshot["source"] = PARSER_SOURCE_NAME
@@ -107,8 +160,8 @@ class RatesUpdater:
         history_added = self.storage.append_history(history)
 
         logger.info(
-            "PARSER Обновление завершено: пар обновлено %d, всего в кеше %d, "
-            "новых записей в истории %d, ошибок %d",
+            "Update finished: updated=%d, total_in_cache=%d, history_added=%d, "
+            "errors=%d",
             len(pairs),
             len(snapshot[PAIRS_KEY]),
             history_added,
@@ -119,6 +172,7 @@ class RatesUpdater:
             "updated": updated,
             "errors": errors,
             "pairs": pairs,
+            "total_updated": len(pairs),
             "history_added": history_added,
             "total_pairs": len(snapshot[PAIRS_KEY]),
         }

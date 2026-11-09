@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_base_currency": "USD",  # базовая валюта по умолчанию
     "log_dir": "logs",  # каталог логов
     "log_file": "actions.log",  # файл лога действий
+    "parser_log_file": "parser.log",  # файл лога Parser Service
     "log_format": "string",  # формат логов: "string" или "json"
     "log_level": "INFO",  # уровень логирования
     "log_max_bytes": 1_048_576,  # размер файла лога до ротации
@@ -94,11 +95,11 @@ class SettingsLoader:
         """
         return self._project_root / self.get("data_dir") / self.get(file_key)
 
-    def log_path(self) -> Path:
+    def log_path(self, file_key: str = "log_file") -> Path:
         """
-        Полный путь к файлу лога.
+        Полный путь к файлу лога (log_file или parser_log_file).
         """
-        return self._project_root / self.get("log_dir") / self.get("log_file")
+        return self._project_root / self.get("log_dir") / self.get(file_key)
 
     @staticmethod
     def _find_project_root() -> Path:

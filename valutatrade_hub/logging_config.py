@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from valutatrade_hub.infra.settings import SettingsLoader
 
@@ -32,24 +33,13 @@ class JsonFormatter(logging.Formatter):
 def _file_handlers(logger: logging.Logger) -> list[logging.Handler]:
     return [h for h in logger.handlers if not isinstance(h, logging.NullHandler)]
 
-def setup_logging(force: bool = False) -> logging.Logger:
-    """
-    Настроить логгеры действий и Parser Service: общий файл с ротацией
-    по размеру, формат и уровень.
 
-    Параметры берутся из SettingsLoader: log_dir, log_file, log_format
-    ("string" или "json"), log_level (INFO по умолчанию, DEBUG для отладки),
-    log_max_bytes и log_backup_count. Повторный вызов ничего не меняет,
-    если не передан force=True.
+def _build_file_handler(log_path: Path) -> RotatingFileHandler:
     """
-    logger = logging.getLogger(ACTIONS_LOGGER_NAME)
-    if _file_handlers(logger) and not force:
-        return logger
-
+    Файловый обработчик с ротацией и форматом из настроек.
+    """
     settings = SettingsLoader()
-    log_path = settings.log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
-
     handler = RotatingFileHandler(
         log_path,
         maxBytes=settings.get("log_max_bytes"),
@@ -62,9 +52,25 @@ def setup_logging(force: bool = False) -> logging.Logger:
         handler.setFormatter(
             logging.Formatter(STRING_LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
         )
+    return handler
 
+
+def setup_logging(force: bool = False) -> logging.Logger:
+    """
+    Настроить логгеры: действия -> log_file,
+    Parser Service -> parser_log_file; ротация по размеру.
+    """
+    logger = logging.getLogger(ACTIONS_LOGGER_NAME)
+    if _file_handlers(logger) and not force:
+        return logger
+
+    settings = SettingsLoader()
     level = str(settings.get("log_level")).upper()
-    for name in (ACTIONS_LOGGER_NAME, PARSER_LOGGER_NAME):
+    for name, file_key in (
+        (ACTIONS_LOGGER_NAME, "log_file"),
+        (PARSER_LOGGER_NAME, "parser_log_file"),
+    ):
+        handler = _build_file_handler(settings.log_path(file_key))
         named_logger = logging.getLogger(name)
         for old_handler in _file_handlers(named_logger):
             named_logger.removeHandler(old_handler)

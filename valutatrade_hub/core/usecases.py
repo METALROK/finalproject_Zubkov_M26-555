@@ -26,7 +26,11 @@ from valutatrade_hub.core.utils import (
 from valutatrade_hub.decorators import log_action
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
-from valutatrade_hub.parser_service.updater import RatesUpdater
+from valutatrade_hub.parser_service.updater import (
+    ProgressCallback,
+    RatesUpdater,
+    create_clients,
+)
 
 RATE_SOURCE_CACHE = "cache"
 RATE_SOURCE_STUB = "stub"
@@ -407,3 +411,12 @@ def list_currencies() -> list[Currency]:
     Все валюты из реестра, отсортированные по коду.
     """
     return [get_currency(code) for code in get_supported_codes()]
+
+def update_rates(
+    source: str | None = None, progress: ProgressCallback | None = None
+) -> dict[str, Any]:
+    """
+    Немедленно обновить курсы через Parser Service.
+    """
+    updater = RatesUpdater(clients=create_clients(source), progress=progress)
+    return updater.run_update()

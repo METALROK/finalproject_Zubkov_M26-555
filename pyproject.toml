@@ -36,6 +36,7 @@ rates_ttl_seconds = 300
 default_base_currency = "USD"
 log_dir = "logs"
 log_file = "actions.log"
+parser_log_file = "parser.log"
 log_format = "string"
 log_level = "INFO"
 log_max_bytes = 1048576

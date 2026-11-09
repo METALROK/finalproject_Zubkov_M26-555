@@ -37,6 +37,7 @@ COMMAND_DESCRIPTIONS = {
     "get-rate": "получить курс одной валюты к другой",
     "currencies": "список поддерживаемых валют",
     "logout": "выйти из учётной записи",
+    "update-rates": "обновить курсы из внешних API (Parser Service)",
 }
 
 
@@ -122,6 +123,15 @@ def build_parser() -> CliArgumentParser:
     )
     subparsers.add_parser(
         "logout", prog="logout", help=COMMAND_DESCRIPTIONS["logout"]
+    )
+
+    update_rates = subparsers.add_parser(
+        "update-rates", prog="update-rates", help=COMMAND_DESCRIPTIONS["update-rates"]
+    )
+    update_rates.add_argument(
+        "--source",
+        default=None,
+        help="только один источник: coingecko или exchangerate (по умолчанию все)",
     )
 
     return parser
@@ -288,6 +298,41 @@ def handle_logout(args: argparse.Namespace, session: CliSession):
     session.current_user = None
     print(f"Вы вышли из учётной записи '{user.username}'")
 
+def print_progress(level: str, message: str):
+    """
+    Вывести шаг обновления курсов.
+    """
+    print(f"{level}: {message}")
+
+def parser_log_hint() -> str:
+    """
+    Путь к логу Parser Service относительно корня проекта.
+    """
+    settings = SettingsLoader()
+    path = settings.log_path("parser_log_file")
+    try:
+        return path.relative_to(settings.project_root).as_posix()
+    except ValueError:
+        return str(path)
+
+def handle_update_rates(args: argparse.Namespace, session: CliSession):
+    """
+    Команда update-rates.
+    """
+    try:
+        summary = usecases.update_rates(args.source, progress=print_progress)
+    except ApiRequestError as error:
+        print(error)
+        print(f"Update failed. Check {parser_log_hint()} for details.")
+        return
+    if summary["errors"]:
+        print(f"Update completed with errors. Check {parser_log_hint()} for details.")
+        return
+    print(
+        f"Update successful. Total rates updated: {summary['total_updated']}. "
+        f"Last refresh: {format_timestamp(summary['last_refresh'])}"
+    )
+
 COMMAND_HANDLERS = {
     "register": handle_register,
     "login": handle_login,
@@ -297,6 +342,7 @@ COMMAND_HANDLERS = {
     "get-rate": handle_get_rate,
     "currencies": handle_currencies,
     "logout": handle_logout,
+    "update-rates": handle_update_rates,
 }
 
 def print_help():
