@@ -150,7 +150,7 @@ def build_parser() -> CliArgumentParser:
 
 def handle_register(args: argparse.Namespace, session: CliSession):
     """
-    Команда register: создать нового пользователя.
+    Команда register.
     """
     user = usecases.register_user(args.username, args.password)
     print(
@@ -160,7 +160,7 @@ def handle_register(args: argparse.Namespace, session: CliSession):
 
 def handle_login(args: argparse.Namespace, session: CliSession):
     """
-    Команда login: войти и зафиксировать текущую сессию.
+    Команда login.
     """
     user = usecases.login_user(args.username, args.password)
     session.current_user = user

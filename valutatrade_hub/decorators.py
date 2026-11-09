@@ -11,7 +11,6 @@ from valutatrade_hub.logging_config import ACTIONS_LOGGER_NAME
 RESULT_OK = "OK"
 RESULT_ERROR = "ERROR"
 
-# Порядок полей в строковом логе.
 FIELD_ORDER = (
     "action",
     "user",

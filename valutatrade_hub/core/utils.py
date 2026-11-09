@@ -89,7 +89,6 @@ def is_crypto_currency(code: str) -> bool:
     """
     Проверить по реестру валют, является ли валюта криптовалютой.
     """
-    # Импорт внутри функции: currencies.py сам импортирует utils.py.
     from valutatrade_hub.core.currencies import CryptoCurrency, get_currency
     from valutatrade_hub.core.exceptions import CurrencyNotFoundError
 

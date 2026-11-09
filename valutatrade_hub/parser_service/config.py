@@ -20,7 +20,7 @@ CRYPTO_ID_MAP = {
     "SOL": "solana",
 }
 
-REQUEST_TIMEOUT = 10  # секунд
+REQUEST_TIMEOUT = 10
 
 COINGECKO_SOURCE = "CoinGecko"
 EXCHANGERATE_SOURCE = "ExchangeRate-API"
@@ -73,7 +73,6 @@ class ParserConfig:
     и не выводится в repr.
     """
 
-    # Ключ API (чувствительные данные - только из окружения / .env)
     EXCHANGERATE_API_KEY: str | None = field(default_factory=_read_api_key, repr=False)
 
     # Эндпоинты

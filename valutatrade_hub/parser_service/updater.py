@@ -109,7 +109,7 @@ class RatesUpdater:
                     logging.ERROR, f"Failed to fetch from {source}: {errors[source]}"
                 )
                 continue
-            except Exception as error:  # отказоустойчивость: не роняем остальных
+            except Exception as error:
                 errors[source] = f"{type(error).__name__}: {error}"
                 logger.exception("Unexpected error in %s", source)
                 self._report(

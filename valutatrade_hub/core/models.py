@@ -15,7 +15,6 @@ from valutatrade_hub.core.utils import (
 MIN_PASSWORD_LENGTH = 4
 BASE_CURRENCY = "USD"
 
-# Фиксированные курсы: сколько USD стоит 1 единица валюты.
 EXCHANGE_RATES_TO_USD: dict[str, float] = {
     "USD": 1.0,
     "EUR": 1.0786,
