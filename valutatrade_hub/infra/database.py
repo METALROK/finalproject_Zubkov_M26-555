@@ -1,4 +1,7 @@
+import copy
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +16,16 @@ class DatabaseManager:
     Пути к файлам берутся из SettingsLoader при каждом обращении,
     поэтому SettingsLoader().reload() сразу влияет на хранилище.
     Запись атомарная (временный файл -> переименование).
+    Изменения данных - через transaction(): чтение -> модификация -> запись
+    под блокировкой; при исключении файл не меняется.
     """
 
     # Singleton через __new__ - по тем же причинам, что и SettingsLoader:
     # просто и читаемо, без метаклассов.
     _instance: "DatabaseManager | None" = None
     _lock = threading.Lock()
+    # RLock: внутри транзакции можно читать/писать (и открывать вложенные).
+    _data_lock = threading.RLock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -34,13 +41,32 @@ class DatabaseManager:
         """
         Прочитать JSON-файл по ключу конфигурации (например, "users_file").
         """
-        return load_json(self._path(file_key), default)
+        with self._data_lock:
+            return load_json(self._path(file_key), copy.deepcopy(default))
 
     def write(self, file_key: str, data: Any):
         """
         Атомарно записать JSON-файл по ключу конфигурации.
         """
-        save_json(self._path(file_key), data)
+        with self._data_lock:
+            save_json(self._path(file_key), data)
+
+    @contextmanager
+    def transaction(self, file_key: str, default: Any) -> Iterator[Any]:
+        """
+        Безопасное изменение файла: чтение -> модификация -> запись.
+
+        Пример:
+            with db.transaction("users_file", []) as users:
+                users.append({...})
+
+        Данные записываются только при успешном выходе из блока;
+        если внутри возникло исключение, файл остаётся прежним.
+        """
+        with self._data_lock:
+            data = self.read(file_key, default)
+            yield data
+            self.write(file_key, data)
 
     def load_users(self) -> list[dict[str, Any]]:
         """

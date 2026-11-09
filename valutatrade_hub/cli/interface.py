@@ -249,11 +249,6 @@ def handle_get_rate(args: argparse.Namespace, session: CliSession):
     )
     if rate:
         print(f"Обратный курс {to_code}->{from_code}: {format_amount(1 / rate)}")
-    if result.get("stale"):
-        print(
-            "Внимание: курс устарел, обновить его не удалось. "
-            "Повторите попытку позже."
-        )
 
 COMMAND_HANDLERS = {
     "register": handle_register,

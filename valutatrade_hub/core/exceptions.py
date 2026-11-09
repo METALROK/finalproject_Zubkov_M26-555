@@ -60,3 +60,18 @@ class RateUnavailableError(ValutaTradeError):
             message
             or f"Курс {from_code}->{to_code} недоступен. Повторите попытку позже."
         )
+
+
+class WalletNotFoundError(ValutaTradeError):
+    """
+    У пользователя нет кошелька в указанной валюте.
+
+    Возникает в usecases.sell_currency().
+    """
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(
+            f"У вас нет кошелька '{code}'. Добавьте валюту: "
+            "она создаётся автоматически при первой покупке."
+        )

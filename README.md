@@ -43,6 +43,7 @@ make lint       # uv run ruff check .
 | `InsufficientFundsError` | `Wallet.withdraw()` -> `sell` | текст ошибки как есть |
 | `CurrencyNotFoundError` | `currencies.get_currency()` -> `buy`, `sell`, `get-rate` | текст ошибки + список поддерживаемых валют и подсказка `get-rate --help` |
 | `ApiRequestError` | обновление кеша курсов (заглушка / Parser Service) | текст ошибки + предложение повторить позже / проверить сеть |
+| `WalletNotFoundError` | `sell` - у пользователя нет кошелька в этой валюте | текст ошибки |
 | `RateUnavailableError` | `get_rate()`, `buy`, `sell` - курса нет ни в кеше, ни у источника | текст ошибки |
 
 Все доменные исключения наследуются от `ValutaTradeError`.

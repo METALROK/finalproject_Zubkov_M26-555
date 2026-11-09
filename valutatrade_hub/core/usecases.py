@@ -2,7 +2,11 @@ from datetime import datetime
 from typing import Any
 
 from valutatrade_hub.core.currencies import get_currency
-from valutatrade_hub.core.exceptions import ApiRequestError, RateUnavailableError
+from valutatrade_hub.core.exceptions import (
+    InsufficientFundsError,
+    RateUnavailableError,
+    WalletNotFoundError,
+)
 from valutatrade_hub.core.models import (
     BASE_CURRENCY,
     EXCHANGE_RATES_TO_USD,
@@ -29,12 +33,6 @@ def load_users() -> list[User]:
     """
     return [User.from_dict(item) for item in db.load_users()]
 
-def save_users(users: list[User]):
-    """
-    Сохранить список пользователей в users.json.
-    """
-    db.save_users([user.to_dict() for user in users])
-
 def find_user_by_username(username: str) -> User | None:
     """
     Найти пользователя по имени.
@@ -51,11 +49,24 @@ def load_portfolios() -> list[Portfolio]:
     """
     return [Portfolio.from_dict(item) for item in db.load_portfolios()]
 
-def save_portfolios(portfolios: list[Portfolio]):
+def _find_portfolio(portfolios_data: list[dict], user_id: int) -> Portfolio:
     """
-    Сохранить список портфелей в portfolios.json.
+    Портфель пользователя из сырых данных portfolios.json (пустой, если нет).
     """
-    db.save_portfolios([portfolio.to_dict() for portfolio in portfolios])
+    for item in portfolios_data:
+        if item.get("user_id") == user_id:
+            return Portfolio.from_dict(item)
+    return Portfolio(user_id)
+
+def _store_portfolio(portfolios_data: list[dict], portfolio: Portfolio):
+    """
+    Заменить (или добавить) портфель в сырых данных portfolios.json.
+    """
+    portfolios_data[:] = [
+        item for item in portfolios_data if item.get("user_id") != portfolio.user_id
+    ]
+    portfolios_data.append(portfolio.to_dict())
+    portfolios_data.sort(key=lambda item: item["user_id"])
 
 def load_rates_cache() -> dict[str, Any]:
     """
@@ -133,16 +144,15 @@ def refresh_rates_cache() -> dict[str, Any]:
     Пока Parser Service не подключён, курсы берутся из заглушки
     EXCHANGE_RATES_TO_USD. Сбой источника курсов -> ApiRequestError.
     """
-    cache = load_rates_cache()
     now = _now_iso()
-    for code, rate in EXCHANGE_RATES_TO_USD.items():
-        if code != BASE_CURRENCY:
-            cache[f"{code}_{BASE_CURRENCY}"] = {"rate": rate, "updated_at": now}
-    cache.pop("source", None)
-    cache.pop("last_refresh", None)
-    cache["source"] = RATES_STUB_SOURCE_NAME
-    cache["last_refresh"] = now
-    db.save_rates(cache)
+    with db.transaction("rates_file", {}) as cache:
+        for code, rate in EXCHANGE_RATES_TO_USD.items():
+            if code != BASE_CURRENCY:
+                cache[f"{code}_{BASE_CURRENCY}"] = {"rate": rate, "updated_at": now}
+        cache.pop("source", None)
+        cache.pop("last_refresh", None)
+        cache["source"] = RATES_STUB_SOURCE_NAME
+        cache["last_refresh"] = now
     return cache
 
 def _compute_rate(from_code: str, to_code: str, cache: dict[str, Any]) -> dict:
@@ -168,9 +178,11 @@ def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
     """
     Единый контракт получения курса FROM -> TO.
 
-    Берёт курс из кеша rates.json, если он моложе TTL; иначе обновляет кеш
-    и считает курс заново. Возвращает словарь: from, to, rate,
-    updated_at, source.
+    Коды проверяются по реестру валют (иначе CurrencyNotFoundError).
+    Курс берётся из кеша rates.json, если он моложе TTL (rates_ttl_seconds
+    из SettingsLoader); иначе кеш обновляется - при сбое источника
+    пробрасывается ApiRequestError. Курса нет и после обновления ->
+    RateUnavailableError. Возвращает словарь: from, to, rate, updated_at, source.
     """
     from_code = _resolve_currency(from_currency)
     to_code = _resolve_currency(to_currency)
@@ -183,7 +195,6 @@ def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
             "source": "fixed",
         }
 
-    cached = None
     try:
         cached = _compute_rate(from_code, to_code, load_rates_cache())
         if cached["source"] == RATE_SOURCE_CACHE and _is_fresh(cached["updated_at"]):
@@ -191,13 +202,7 @@ def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
     except ValueError:
         pass
 
-    try:
-        cache = refresh_rates_cache()
-    except ApiRequestError:
-        if cached is not None:
-            return cached | {"stale": True}
-        raise
-
+    cache = refresh_rates_cache()
     try:
         return _compute_rate(from_code, to_code, cache)
     except ValueError as error:
@@ -231,23 +236,16 @@ def register_user(username: str, password: str) -> User:
     """
     Зарегистрировать пользователя и создать для него пустой портфель.
     """
-    users = load_users()
-    target = username.strip().lower()
-    if any(user.username.lower() == target for user in users):
-        raise ValueError(f"Имя пользователя '{username.strip()}' уже занято")
+    with db.transaction("users_file", []) as users_data:
+        users = [User.from_dict(item) for item in users_data]
+        target = username.strip().lower()
+        if any(user.username.lower() == target for user in users):
+            raise ValueError(f"Имя пользователя '{username.strip()}' уже занято")
+        user = User.create(_next_user_id(users), username, password)
+        users_data.append(user.to_dict())
 
-    user = User.create(_next_user_id(users), username, password)
-    users.append(user)
-
-    portfolios = [
-        portfolio
-        for portfolio in load_portfolios()
-        if portfolio.user_id != user.user_id
-    ]
-    portfolios.append(Portfolio(user.user_id))
-
-    save_users(users)
-    save_portfolios(portfolios)
+    with db.transaction("portfolios_file", []) as portfolios_data:
+        _store_portfolio(portfolios_data, Portfolio(user.user_id))
     return user
 
 @log_action("LOGIN")
@@ -266,10 +264,7 @@ def get_portfolio(user_id: int) -> Portfolio:
     """
     Вернуть портфель пользователя.
     """
-    for portfolio in load_portfolios():
-        if portfolio.user_id == user_id:
-            return portfolio
-    return Portfolio(user_id)
+    return _find_portfolio(db.load_portfolios(), user_id)
 
 def get_portfolio_summary(
     user_id: int, base_currency: str | None = None
@@ -301,12 +296,8 @@ def save_portfolio(portfolio: Portfolio):
     """
     Сохранить один портфель, заменив его прежнюю версию в portfolios.json.
     """
-    portfolios = [
-        item for item in load_portfolios() if item.user_id != portfolio.user_id
-    ]
-    portfolios.append(portfolio)
-    portfolios.sort(key=lambda item: item.user_id)
-    save_portfolios(portfolios)
+    with db.transaction("portfolios_file", []) as portfolios_data:
+        _store_portfolio(portfolios_data, portfolio)
 
 def _get_rate_to_base(currency_code: str, base_currency: str) -> float:
     """
@@ -327,17 +318,21 @@ def buy_currency(
 ) -> dict[str, Any]:
     """
     Купить amount единиц валюты: пополнить или создать кошелёк.
+
+    Ошибки: ValueError (amount), CurrencyNotFoundError (код валюты),
+    ApiRequestError/RateUnavailableError (курс).
     """
-    code = _resolve_currency(currency_code)
     amount = validate_amount(amount)
+    code = _resolve_currency(currency_code)
     base = _resolve_currency(base_currency or _default_base())
     rate = _get_rate_to_base(code, base)
 
-    portfolio = get_portfolio(user_id)
-    wallet = portfolio.get_wallet(code) or portfolio.add_currency(code)
-    old_balance = wallet.balance
-    wallet.deposit(amount)
-    save_portfolio(portfolio)
+    with db.transaction("portfolios_file", []) as portfolios_data:
+        portfolio = _find_portfolio(portfolios_data, user_id)
+        wallet = portfolio.get_wallet(code) or portfolio.add_currency(code)
+        old_balance = wallet.balance
+        wallet.deposit(amount)
+        _store_portfolio(portfolios_data, portfolio)
 
     return {
         "currency_code": code,
@@ -359,30 +354,33 @@ def sell_currency(
     Если у пользователя есть кошелёк базовой валюты, выручка зачисляется на него.
     Возвращает словарь: currency_code, amount, old_balance, new_balance,
     rate, base, revenue, base_old_balance/base_new_balance (None без зачисления).
+    Ошибки: ValueError (amount), CurrencyNotFoundError, WalletNotFoundError,
+    InsufficientFundsError, ApiRequestError/RateUnavailableError (курс).
     """
-    code = _resolve_currency(currency_code)
     amount = validate_amount(amount)
+    code = _resolve_currency(currency_code)
     base = _resolve_currency(base_currency or _default_base())
 
-    portfolio = get_portfolio(user_id)
-    wallet = portfolio.get_wallet(code)
-    if wallet is None:
-        raise ValueError(
-            f"У вас нет кошелька '{code}'. Добавьте валюту: "
-            "она создаётся автоматически при первой покупке."
-        )
-    rate = _get_rate_to_base(code, base)
-    old_balance = wallet.balance
-    wallet.withdraw(amount)
-    revenue = amount * rate
+    with db.transaction("portfolios_file", []) as portfolios_data:
+        portfolio = _find_portfolio(portfolios_data, user_id)
+        wallet = portfolio.get_wallet(code)
+        if wallet is None:
+            raise WalletNotFoundError(code)
+        if amount > wallet.balance:
+            raise InsufficientFundsError(wallet.balance, amount, code)
 
-    base_wallet = portfolio.get_wallet(base) if code != base else None
-    base_old_balance = base_new_balance = None
-    if base_wallet is not None:
-        base_old_balance = base_wallet.balance
-        base_wallet.deposit(revenue)
-        base_new_balance = base_wallet.balance
-    save_portfolio(portfolio)
+        rate = _get_rate_to_base(code, base)
+        old_balance = wallet.balance
+        wallet.withdraw(amount)
+        revenue = amount * rate
+
+        base_wallet = portfolio.get_wallet(base) if code != base else None
+        base_old_balance = base_new_balance = None
+        if base_wallet is not None:
+            base_old_balance = base_wallet.balance
+            base_wallet.deposit(revenue)
+            base_new_balance = base_wallet.balance
+        _store_portfolio(portfolios_data, portfolio)
 
     return {
         "currency_code": code,
