@@ -25,6 +25,7 @@ EXCHANGE_RATES_TO_USD: dict[str, float] = {
 }
 
 CRYPTO_CURRENCIES = {"BTC", "ETH"}
+BALANCE_PRECISION = 8
 
 
 class User:
@@ -237,7 +238,7 @@ class Wallet:
         Пополнить баланс на положительную сумму.
         """
         amount = validate_amount(amount)
-        self.balance = self._balance + amount
+        self.balance = round(self._balance + amount, BALANCE_PRECISION)
 
     def withdraw(self, amount: float):
         """
@@ -250,7 +251,7 @@ class Wallet:
                 f"{format_amount(self._balance)} {self._currency_code}, "
                 f"требуется {format_amount(amount)} {self._currency_code}"
             )
-        self.balance = self._balance - amount
+        self.balance = round(self._balance - amount, BALANCE_PRECISION)
 
     def get_balance_info(self) -> str:
         """

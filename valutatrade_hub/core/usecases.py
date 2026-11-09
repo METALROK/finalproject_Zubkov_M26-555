@@ -13,6 +13,7 @@ from valutatrade_hub.core.utils import (
     USERS_FILE,
     load_json,
     save_json,
+    validate_amount,
     validate_currency_code,
 )
 
@@ -207,3 +208,52 @@ def get_portfolio_summary(
         )
     total = portfolio.get_total_value(base, exchange_rates=rates)
     return {"base": base, "wallets": wallets, "total": total}
+
+def save_portfolio(portfolio: Portfolio):
+    """
+    Сохранить один портфель, заменив его прежнюю версию в portfolios.json.
+    """
+    portfolios = [
+        item for item in load_portfolios() if item.user_id != portfolio.user_id
+    ]
+    portfolios.append(portfolio)
+    portfolios.sort(key=lambda item: item.user_id)
+    save_portfolios(portfolios)
+
+def _get_rate_to_base(currency_code: str, base_currency: str) -> float:
+    """
+    Получить курс валюты к базовой или сообщить, что курс недоступен.
+    """
+    try:
+        return get_rate(currency_code, base_currency)["rate"]
+    except ValueError as error:
+        raise ValueError(
+            f"Не удалось получить курс для {currency_code}→{base_currency}"
+        ) from error
+
+def buy_currency(
+    user_id: int, currency_code: str, amount: float, base_currency: str = BASE_CURRENCY
+) -> dict[str, Any]:
+    """
+    Купить amount единиц валюты: пополнить или создать кошелёк.
+    """
+    code = validate_currency_code(currency_code)
+    amount = validate_amount(amount)
+    base = validate_currency_code(base_currency)
+    rate = _get_rate_to_base(code, base)
+
+    portfolio = get_portfolio(user_id)
+    wallet = portfolio.get_wallet(code) or portfolio.add_currency(code)
+    old_balance = wallet.balance
+    wallet.deposit(amount)
+    save_portfolio(portfolio)
+
+    return {
+        "currency_code": code,
+        "amount": amount,
+        "old_balance": old_balance,
+        "new_balance": wallet.balance,
+        "rate": rate,
+        "base": base,
+        "cost": amount * rate,
+    }

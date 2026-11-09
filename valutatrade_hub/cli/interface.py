@@ -16,6 +16,7 @@ COMMAND_DESCRIPTIONS = {
     "register": "зарегистрировать нового пользователя",
     "login": "войти в систему",
     "show-portfolio": "показать кошельки и итоговую стоимость",
+    "buy": "купить валюту",
 }
 
 
@@ -73,6 +74,10 @@ def build_parser() -> CliArgumentParser:
         help=f"базовая валюта (по умолчанию {BASE_CURRENCY})",
     )
 
+    buy = subparsers.add_parser("buy", prog="buy", help=COMMAND_DESCRIPTIONS["buy"])
+    buy.add_argument("--currency", required=True, help="код покупаемой валюты")
+    buy.add_argument("--amount", required=True, help="количество (в штуках валюты)")
+
     return parser
 
 def handle_register(args: argparse.Namespace, session: CliSession):
@@ -100,6 +105,15 @@ def require_login(session: CliSession) -> User:
     if session.current_user is None:
         raise ValueError("Сначала выполните login")
     return session.current_user
+
+def parse_amount(text: str) -> float:
+    """
+    Преобразовать аргумент --amount в число.
+    """
+    try:
+        return float(text.replace(",", "."))
+    except ValueError:
+        raise ValueError("'amount' должен быть положительным числом") from None
 
 def format_money(currency_code: str, value: float, thousands: bool = False) -> str:
     """
@@ -137,10 +151,34 @@ def handle_show_portfolio(args: argparse.Namespace, session: CliSession):
     print("-" * SEPARATOR_WIDTH)
     print(f"ИТОГО: {format_money(base, summary['total'], thousands=True)} {base}")
 
+def handle_buy(args: argparse.Namespace, session: CliSession):
+    """
+    Команда buy.
+    """
+    user = require_login(session)
+    result = usecases.buy_currency(
+        user.user_id, args.currency, parse_amount(args.amount)
+    )
+    code, base = result["currency_code"], result["base"]
+    print(
+        f"Покупка выполнена: {format_money(code, result['amount'])} {code} "
+        f"по курсу {format_amount(result['rate'])} {base}/{code}"
+    )
+    print("Изменения в портфеле:")
+    print(
+        f"- {code}: было {format_money(code, result['old_balance'])} "
+        f"→ стало {format_money(code, result['new_balance'])}"
+    )
+    print(
+        f"Оценочная стоимость покупки: "
+        f"{format_money(base, result['cost'], thousands=True)} {base}"
+    )
+
 COMMAND_HANDLERS = {
     "register": handle_register,
     "login": handle_login,
     "show-portfolio": handle_show_portfolio,
+    "buy": handle_buy,
 }
 
 def print_help():
