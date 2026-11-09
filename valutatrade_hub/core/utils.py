@@ -3,6 +3,7 @@ import json
 import math
 import os
 import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -106,3 +107,28 @@ def format_money(currency_code: str, value: float, thousands: bool = False) -> s
     if thousands:
         return f"{value:,.{FIAT_DECIMALS}f}"
     return f"{value:.{FIAT_DECIMALS}f}"
+
+def utc_iso(unix_seconds: float | None = None) -> str:
+    """
+    Время в ISO-формате UTC с суффиксом Z: 2025-10-10T12:00:00Z.
+    """
+    moment = (
+        datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
+        if unix_seconds is not None
+        else datetime.now(timezone.utc)
+    )
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def parse_iso_datetime(value: str | None) -> datetime | None:
+    """
+    Разобрать ISO-время.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None

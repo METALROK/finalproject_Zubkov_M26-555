@@ -1,12 +1,13 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from typing import Any
 
 import requests
 
 from valutatrade_hub.core.exceptions import ApiRequestError
+from valutatrade_hub.core.utils import utc_iso
+from valutatrade_hub.logging_config import PARSER_LOGGER_NAME
 from valutatrade_hub.parser_service.config import (
     COINGECKO_SOURCE,
     EXCHANGERATE_API_KEY_ENV,
@@ -33,28 +34,16 @@ EXCHANGERATE_ERROR_MESSAGES = {
     "malformed-request": "некорректный запрос",
 }
 
-PARSER_LOGGER_NAME = "valutatrade.parser"
-
 logger = logging.getLogger(PARSER_LOGGER_NAME)
 logger.addHandler(logging.NullHandler())
 
-
-def _utc_iso(unix_seconds: float | None = None) -> str:
-    """
-    Время в ISO-формате UTC с суффиксом Z: 2025-10-10T12:00:00Z.
-    """
-    moment = (
-        datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
-        if unix_seconds is not None
-        else datetime.now(timezone.utc)
-    )
-    return moment.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def _is_valid_rate(value: Any) -> bool:
     """
     Курс - положительное число.
     """
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
 
 class BaseApiClient(ABC):
     """
@@ -171,7 +160,7 @@ class CoinGeckoClient(BaseApiClient):
             updated = entry.get("last_updated_at")
             self.last_meta[pair] = meta | {
                 "raw_id": raw_id,
-                "timestamp": _utc_iso(updated if _is_valid_rate(updated) else None),
+                "timestamp": utc_iso(updated if _is_valid_rate(updated) else None),
             }
 
         if not rates:
@@ -206,7 +195,7 @@ class ExchangeRateApiClient(BaseApiClient):
 
         base = self.config.BASE_CURRENCY
         updated = data.get("time_last_update_unix")
-        timestamp = _utc_iso(updated if _is_valid_rate(updated) else None)
+        timestamp = utc_iso(updated if _is_valid_rate(updated) else None)
         rates: dict[str, float] = {}
         self.last_meta = {}
         for code in self.config.FIAT_CURRENCIES:

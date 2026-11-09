@@ -17,16 +17,20 @@ from valutatrade_hub.core.models import (
     Portfolio,
     User,
 )
-from valutatrade_hub.core.utils import validate_amount, validate_currency_code
+from valutatrade_hub.core.utils import (
+    parse_iso_datetime,
+    utc_iso,
+    validate_amount,
+    validate_currency_code,
+)
 from valutatrade_hub.decorators import log_action
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.parser_service.updater import RatesUpdater
 
 RATE_SOURCE_CACHE = "cache"
 RATE_SOURCE_STUB = "stub"
-RATES_STUB_SOURCE_NAME = "StubRatesProvider"
 
-# Синглтоны: конфигурация (TTL курсов, базовая валюта, пути) и хранилище JSON.
 settings = SettingsLoader()
 db = DatabaseManager()
 
@@ -78,14 +82,24 @@ def load_rates_cache() -> dict[str, Any]:
     """
     return db.load_rates()
 
+def _cache_pairs(cache: dict[str, Any]) -> dict[str, Any]:
+    """
+    Пары курсов из rates.json.
+    """
+    pairs = cache.get("pairs")
+    if isinstance(pairs, dict):
+        return pairs
+    return {key: value for key, value in cache.items() if isinstance(value, dict)}
+
 def _read_pair(cache: dict[str, Any], from_code: str, to_code: str) -> dict | None:
     """
     Найти курс пары в кеше: прямой или обратный.
     """
-    direct = cache.get(f"{from_code}_{to_code}")
+    pairs = _cache_pairs(cache)
+    direct = pairs.get(f"{from_code}_{to_code}")
     if isinstance(direct, dict) and "rate" in direct:
         return {"rate": float(direct["rate"]), "updated_at": direct.get("updated_at")}
-    reverse = cache.get(f"{to_code}_{from_code}")
+    reverse = pairs.get(f"{to_code}_{from_code}")
     if isinstance(reverse, dict) and reverse.get("rate"):
         return {
             "rate": 1 / float(reverse["rate"]),
@@ -122,7 +136,7 @@ def _now_iso() -> str:
     """
     Текущее время в ISO-формате с точностью до секунды.
     """
-    return datetime.now().replace(microsecond=0).isoformat()
+    return utc_iso()
 
 def _is_fresh(updated_at: str | None, ttl_seconds: int | None = None) -> bool:
     """
@@ -132,32 +146,20 @@ def _is_fresh(updated_at: str | None, ttl_seconds: int | None = None) -> bool:
     """
     if ttl_seconds is None:
         ttl_seconds = settings.get("rates_ttl_seconds")
-    if not updated_at:
-        return False
-    try:
-        moment = datetime.fromisoformat(updated_at)
-    except ValueError:
+    moment = parse_iso_datetime(updated_at)
+    if moment is None:
         return False
     now = datetime.now(moment.tzinfo) if moment.tzinfo else datetime.now()
     return (now - moment).total_seconds() <= ttl_seconds
 
 def refresh_rates_cache() -> dict[str, Any]:
     """
-    Обновить кеш rates.json свежими курсами.
+    Обновить кеш rates.json через Parser Service и вернуть его.
 
-    Пока Parser Service не подключён, курсы берутся из заглушки
-    EXCHANGE_RATES_TO_USD. Сбой источника курсов -> ApiRequestError.
+    Если ни один источник курсов не ответил -> ApiRequestError.
     """
-    now = _now_iso()
-    with db.transaction("rates_file", {}) as cache:
-        for code, rate in EXCHANGE_RATES_TO_USD.items():
-            if code != BASE_CURRENCY:
-                cache[f"{code}_{BASE_CURRENCY}"] = {"rate": rate, "updated_at": now}
-        cache.pop("source", None)
-        cache.pop("last_refresh", None)
-        cache["source"] = RATES_STUB_SOURCE_NAME
-        cache["last_refresh"] = now
-    return cache
+    RatesUpdater().run_update()
+    return load_rates_cache()
 
 def _compute_rate(from_code: str, to_code: str, cache: dict[str, Any]) -> dict:
     """
@@ -218,8 +220,8 @@ def get_rates_to_usd() -> dict[str, float]:
     """
     cache = load_rates_cache()
     codes = set(EXCHANGE_RATES_TO_USD)
-    for key, value in cache.items():
-        if isinstance(value, dict) and "_" in key:
+    for key in _cache_pairs(cache):
+        if "_" in key:
             codes.update(key.split("_", 1))
     rates = {}
     for code in codes:

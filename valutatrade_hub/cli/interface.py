@@ -1,7 +1,6 @@
 import argparse
 import shlex
 import sys
-from datetime import datetime
 
 from prettytable import PrettyTable
 
@@ -15,7 +14,11 @@ from valutatrade_hub.core.exceptions import (
     ValutaTradeError,
 )
 from valutatrade_hub.core.models import User
-from valutatrade_hub.core.utils import format_amount, format_money
+from valutatrade_hub.core.utils import (
+    format_amount,
+    format_money,
+    parse_iso_datetime,
+)
 from valutatrade_hub.infra.settings import SettingsLoader
 from valutatrade_hub.logging_config import setup_logging
 
@@ -246,12 +249,12 @@ def format_timestamp(value: str | None) -> str:
     """
     Привести ISO-время к виду 'YYYY-MM-DD HH:MM:SS'.
     """
-    if not value:
-        return "неизвестно"
-    try:
-        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return value
+    moment = parse_iso_datetime(value)
+    if moment is None:
+        return value or "неизвестно"
+    if moment.tzinfo is not None:
+        moment = moment.astimezone()
+    return moment.strftime("%Y-%m-%d %H:%M:%S")
 
 def handle_get_rate(args: argparse.Namespace, session: CliSession):
     """
