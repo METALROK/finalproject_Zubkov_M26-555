@@ -132,3 +132,32 @@ def get_rates_to_usd() -> dict[str, float]:
         except ValueError:
             continue
     return rates
+
+def _next_user_id(users: list[User]) -> int:
+    """
+    Сгенерировать следующий user_id.
+    """
+    return max((user.user_id for user in users), default=0) + 1
+
+def register_user(username: str, password: str) -> User:
+    """
+    Зарегистрировать пользователя и создать для него пустой портфель.
+    """
+    users = load_users()
+    target = username.strip().lower()
+    if any(user.username.lower() == target for user in users):
+        raise ValueError(f"Имя пользователя '{username.strip()}' уже занято")
+
+    user = User.create(_next_user_id(users), username, password)
+    users.append(user)
+
+    portfolios = [
+        portfolio
+        for portfolio in load_portfolios()
+        if portfolio.user_id != user.user_id
+    ]
+    portfolios.append(Portfolio(user.user_id))
+
+    save_users(users)
+    save_portfolios(portfolios)
+    return user
