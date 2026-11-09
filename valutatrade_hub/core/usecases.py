@@ -18,6 +18,7 @@ from valutatrade_hub.core.models import (
     User,
 )
 from valutatrade_hub.core.utils import (
+    is_crypto_currency,
     parse_iso_datetime,
     utc_iso,
     validate_amount,
@@ -34,6 +35,9 @@ from valutatrade_hub.parser_service.updater import (
 
 RATE_SOURCE_CACHE = "cache"
 RATE_SOURCE_STUB = "stub"
+EMPTY_CACHE_MESSAGE = (
+    "Локальный кеш курсов пуст. Выполните 'update-rates', чтобы загрузить данные."
+)
 
 settings = SettingsLoader()
 db = DatabaseManager()
@@ -420,3 +424,103 @@ def update_rates(
     """
     updater = RatesUpdater(clients=create_clients(source), progress=progress)
     return updater.run_update()
+
+def _cached_rows(cache: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Корректные пары из кеша в виде строк.
+    """
+    rows = []
+    for pair, value in _cache_pairs(cache).items():
+        if "_" not in pair or not isinstance(value, dict):
+            continue
+        rate = value.get("rate")
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)) or rate <= 0:
+            continue
+        from_code, to_code = pair.split("_", 1)
+        rows.append(
+            {
+                "pair": pair,
+                "from": from_code,
+                "to": to_code,
+                "rate": float(rate),
+                "updated_at": value.get("updated_at"),
+                "source": value.get("source"),
+            }
+        )
+    return rows
+
+def _rebase_rows(rows: list[dict[str, Any]], base: str) -> list[dict[str, Any]]:
+    """
+    Пересчитать курсы X_USD в X_<base> через курс базы к USD из кеша.
+    """
+    usd_rates = {row["from"]: row for row in rows if row["to"] == BASE_CURRENCY}
+    if base == BASE_CURRENCY:
+        return list(usd_rates.values())
+    base_row = usd_rates.get(base)
+    if base_row is None:
+        raise ValueError(f"Курс для '{base}' не найден в кеше.")
+    rebased = [
+        {
+            "pair": f"{BASE_CURRENCY}_{base}",
+            "from": BASE_CURRENCY,
+            "to": base,
+            "rate": 1 / base_row["rate"],
+            "updated_at": base_row["updated_at"],
+            "source": base_row["source"],
+        }
+    ]
+    for code, row in usd_rates.items():
+        if code == base:
+            continue
+        rebased.append(
+            row
+            | {
+                "pair": f"{code}_{base}",
+                "to": base,
+                "rate": row["rate"] / base_row["rate"],
+                "updated_at": min(
+                    filter(None, (row["updated_at"], base_row["updated_at"])),
+                    default=None,
+                ),
+            }
+        )
+    return rebased
+
+def get_cached_rates(
+    currency: str | None = None, top: int | None = None, base: str | None = None
+) -> dict[str, Any]:
+    """
+    Курсы из локального кеша rates.json.
+    """
+    cache = load_rates_cache()
+    rows = _cached_rows(cache)
+    if not rows:
+        raise ValueError(EMPTY_CACHE_MESSAGE)
+
+    base_code = None
+    if base:
+        base_code = _resolve_currency(base)
+        rows = _rebase_rows(rows, base_code)
+
+    if currency:
+        code = currency.strip().upper()
+        rows = [row for row in rows if row["from"] == code]
+        if not rows:
+            raise ValueError(f"Курс для '{code}' не найден в кеше.")
+
+    if top is not None:
+        if isinstance(top, bool) or not isinstance(top, int) or top <= 0:
+            raise ValueError("'top' должен быть положительным целым числом")
+        rows = [row for row in rows if is_crypto_currency(row["from"])]
+        if not rows:
+            raise ValueError("В кеше нет курсов криптовалют.")
+        rows = sorted(rows, key=lambda row: row["rate"], reverse=True)[:top]
+    else:
+        rows = sorted(rows, key=lambda row: row["pair"])
+
+    times = [row["updated_at"] for row in rows if row["updated_at"]]
+    return {
+        "last_refresh": cache.get("last_refresh") or max(times, default=None),
+        "base": base_code,
+        "rows": rows,
+    }

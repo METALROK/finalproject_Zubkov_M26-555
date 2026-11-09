@@ -38,6 +38,7 @@ COMMAND_DESCRIPTIONS = {
     "currencies": "список поддерживаемых валют",
     "logout": "выйти из учётной записи",
     "update-rates": "обновить курсы из внешних API (Parser Service)",
+    "show-rates": "показать курсы из локального кеша",
 }
 
 
@@ -132,6 +133,17 @@ def build_parser() -> CliArgumentParser:
         "--source",
         default=None,
         help="только один источник: coingecko или exchangerate (по умолчанию все)",
+    )
+
+    show_rates = subparsers.add_parser(
+        "show-rates", prog="show-rates", help=COMMAND_DESCRIPTIONS["show-rates"]
+    )
+    show_rates.add_argument("--currency", default=None, help="курс только этой валюты")
+    show_rates.add_argument(
+        "--top", default=None, help="N самых дорогих криптовалют"
+    )
+    show_rates.add_argument(
+        "--base", default=None, help="показать все курсы относительно этой валюты"
     )
 
     return parser
@@ -333,6 +345,28 @@ def handle_update_rates(args: argparse.Namespace, session: CliSession):
         f"Last refresh: {format_timestamp(summary['last_refresh'])}"
     )
 
+def parse_top(text: str | None) -> int | None:
+    """
+    Преобразовать аргумент --top в целое число.
+    """
+    if text is None:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        raise ValueError("'top' должен быть положительным целым числом") from None
+
+def handle_show_rates(args: argparse.Namespace, session: CliSession):
+    """
+    Команда show-rates.
+    """
+    result = usecases.get_cached_rates(
+        currency=args.currency, top=parse_top(args.top), base=args.base
+    )
+    print(f"Rates from cache (updated at {format_timestamp(result['last_refresh'])}):")
+    for row in result["rows"]:
+        print(f"- {row['pair']}: {format_amount(row['rate'])}")
+
 COMMAND_HANDLERS = {
     "register": handle_register,
     "login": handle_login,
@@ -343,6 +377,7 @@ COMMAND_HANDLERS = {
     "currencies": handle_currencies,
     "logout": handle_logout,
     "update-rates": handle_update_rates,
+    "show-rates": handle_show_rates,
 }
 
 def print_help():

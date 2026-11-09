@@ -37,6 +37,7 @@ make lint       # uv run ruff check .
 | `sell` | `sell --currency BTC --amount 0.01` | `Сначала выполните login`; `У вас нет кошелька 'BTC'. ...`; `Недостаточно средств: доступно 0.0400 BTC, требуется 0.0500 BTC`; `Неизвестная валюта 'XYZ'` |
 | `get-rate` | `get-rate --from USD --to BTC` | `Неизвестная валюта 'XYZ'`; `Курс USD->BTC недоступен. Повторите попытку позже.`; `Ошибка при обращении к внешнему API: ...` |
 | `update-rates` | `update-rates`, `update-rates --source coingecko` | `Неизвестный источник 'x'. Доступны: coingecko, exchangerate`; `Ошибка при обращении к внешнему API: ...` + `Update failed. Check logs/parser.log for details.`; при сбое части источников - `Update completed with errors. Check logs/parser.log for details.` |
+| `show-rates` | `show-rates`, `show-rates --top 2`, `show-rates --currency RUB`, `show-rates --base EUR` | `Локальный кеш курсов пуст. Выполните 'update-rates', чтобы загрузить данные.`; `Курс для 'ABC' не найден в кеше.`; `'top' должен быть положительным целым числом` |
 
 ### Доменные исключения (`valutatrade_hub/core/exceptions.py`)
 
