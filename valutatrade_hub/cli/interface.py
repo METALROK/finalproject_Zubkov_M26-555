@@ -3,6 +3,13 @@ import shlex
 from datetime import datetime
 
 from valutatrade_hub.core import usecases
+from valutatrade_hub.core.currencies import get_supported_codes
+from valutatrade_hub.core.exceptions import (
+    ApiRequestError,
+    CurrencyNotFoundError,
+    InsufficientFundsError,
+    ValutaTradeError,
+)
 from valutatrade_hub.core.models import BASE_CURRENCY, User
 from valutatrade_hub.core.utils import format_amount, format_money
 
@@ -237,6 +244,11 @@ def handle_get_rate(args: argparse.Namespace, session: CliSession):
     )
     if rate:
         print(f"Обратный курс {to_code}->{from_code}: {format_amount(1 / rate)}")
+    if result.get("stale"):
+        print(
+            "Внимание: курс устарел, обновить его не удалось. "
+            "Повторите попытку позже."
+        )
 
 COMMAND_HANDLERS = {
     "register": handle_register,
@@ -286,7 +298,16 @@ def execute_command(line: str, parser: CliArgumentParser, session: CliSession):
 
     try:
         COMMAND_HANDLERS[args.command](args, session)
-    except (ValueError, TypeError) as error:
+    except InsufficientFundsError as error:
+        print(error)
+    except CurrencyNotFoundError as error:
+        print(error)
+        print(f"Поддерживаемые валюты: {', '.join(get_supported_codes())}")
+        print("Справка по курсам: get-rate --help")
+    except ApiRequestError as error:
+        print(error)
+        print("Повторите попытку позже или проверьте подключение к сети.")
+    except (ValutaTradeError, ValueError, TypeError) as error:
         print(error)
 
 def main():

@@ -3,6 +3,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+from valutatrade_hub.core.exceptions import InsufficientFundsError
 from valutatrade_hub.core.utils import (
     format_money,
     generate_salt,
@@ -245,12 +246,7 @@ class Wallet:
         """
         amount = validate_amount(amount)
         if amount > self._balance:
-            raise ValueError(
-                f"Недостаточно средств: доступно "
-                f"{format_money(self._currency_code, self._balance)} "
-                f"{self._currency_code}, требуется "
-                f"{format_money(self._currency_code, amount)} {self._currency_code}"
-            )
+            raise InsufficientFundsError(self._balance, amount, self._currency_code)
         self.balance = round(self._balance - amount, BALANCE_PRECISION)
 
     def get_balance_info(self) -> str:

@@ -9,7 +9,6 @@ from typing import Any
 SALT_LENGTH_BYTES = 8
 CURRENCY_CODE_MIN_LENGTH = 2
 CURRENCY_CODE_MAX_LENGTH = 5
-CRYPTO_CURRENCIES = {"BTC", "ETH"}
 FIAT_DECIMALS = 2
 CRYPTO_DECIMALS = 4
 
@@ -90,11 +89,24 @@ def save_json(path: Path, data: Any):
         file.write("\n")
     os.replace(tmp_path, path)
 
+def is_crypto_currency(code: str) -> bool:
+    """
+    Проверить по реестру валют, является ли валюта криптовалютой.
+    """
+    # Импорт внутри функции: currencies.py сам импортирует utils.py.
+    from valutatrade_hub.core.currencies import CryptoCurrency, get_currency
+    from valutatrade_hub.core.exceptions import CurrencyNotFoundError
+
+    try:
+        return isinstance(get_currency(code), CryptoCurrency)
+    except CurrencyNotFoundError:
+        return False
+
 def format_money(currency_code: str, value: float, thousands: bool = False) -> str:
     """
     Отформатировать сумму: 2 знака для фиата, 4-8 знаков для криптовалют.
     """
-    if currency_code in CRYPTO_CURRENCIES:
+    if is_crypto_currency(currency_code):
         return format_amount(value, min_decimals=CRYPTO_DECIMALS)
     if thousands:
         return f"{value:,.{FIAT_DECIMALS}f}"

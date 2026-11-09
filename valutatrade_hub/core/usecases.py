@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from valutatrade_hub.core.currencies import get_currency
+from valutatrade_hub.core.exceptions import ApiRequestError, RateUnavailableError
 from valutatrade_hub.core.models import (
     BASE_CURRENCY,
     EXCHANGE_RATES_TO_USD,
@@ -91,6 +93,12 @@ def _rate_to_usd(code: str, cache: dict[str, Any]) -> tuple[float, str | None, s
         return EXCHANGE_RATES_TO_USD[code], None, RATE_SOURCE_STUB
     raise ValueError(f"Курс для валюты '{code}' недоступен")
 
+def _resolve_currency(code: str) -> str:
+    """
+    Проверить код по реестру валют; неизвестный код выбрасывает CurrencyNotFoundError.
+    """
+    return get_currency(code).code
+
 def _now_iso() -> str:
     """
     Текущее время в ISO-формате с точностью до секунды.
@@ -115,7 +123,7 @@ def refresh_rates_cache() -> dict[str, Any]:
     Обновить кеш rates.json свежими курсами.
 
     Пока Parser Service не подключён, курсы берутся из заглушки
-    EXCHANGE_RATES_TO_USD.
+    EXCHANGE_RATES_TO_USD. Сбой источника курсов -> ApiRequestError.
     """
     cache = load_rates_cache()
     now = _now_iso()
@@ -156,8 +164,8 @@ def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
     и считает курс заново. Возвращает словарь: from, to, rate,
     updated_at, source.
     """
-    from_code = validate_currency_code(from_currency)
-    to_code = validate_currency_code(to_currency)
+    from_code = _resolve_currency(from_currency)
+    to_code = _resolve_currency(to_currency)
     if from_code == to_code:
         return {
             "from": from_code,
@@ -167,19 +175,25 @@ def get_rate(from_currency: str, to_currency: str) -> dict[str, Any]:
             "source": "fixed",
         }
 
+    cached = None
     try:
-        result = _compute_rate(from_code, to_code, load_rates_cache())
-        if result["source"] == RATE_SOURCE_CACHE and _is_fresh(result["updated_at"]):
-            return result
+        cached = _compute_rate(from_code, to_code, load_rates_cache())
+        if cached["source"] == RATE_SOURCE_CACHE and _is_fresh(cached["updated_at"]):
+            return cached
     except ValueError:
         pass
 
     try:
-        return _compute_rate(from_code, to_code, refresh_rates_cache())
+        cache = refresh_rates_cache()
+    except ApiRequestError:
+        if cached is not None:
+            return cached | {"stale": True}
+        raise
+
+    try:
+        return _compute_rate(from_code, to_code, cache)
     except ValueError as error:
-        raise ValueError(
-            f"Курс {from_code}->{to_code} недоступен. Повторите попытку позже."
-        ) from error
+        raise RateUnavailableError(from_code, to_code) from error
 
 def get_rates_to_usd() -> dict[str, float]:
     """
@@ -290,9 +304,11 @@ def _get_rate_to_base(currency_code: str, base_currency: str) -> float:
     """
     try:
         return get_rate(currency_code, base_currency)["rate"]
-    except ValueError as error:
-        raise ValueError(
-            f"Не удалось получить курс для {currency_code}->{base_currency}"
+    except RateUnavailableError as error:
+        raise RateUnavailableError(
+            currency_code,
+            base_currency,
+            f"Не удалось получить курс для {currency_code}->{base_currency}",
         ) from error
 
 def buy_currency(
@@ -301,9 +317,9 @@ def buy_currency(
     """
     Купить amount единиц валюты: пополнить или создать кошелёк.
     """
-    code = validate_currency_code(currency_code)
+    code = _resolve_currency(currency_code)
     amount = validate_amount(amount)
-    base = validate_currency_code(base_currency)
+    base = _resolve_currency(base_currency)
     rate = _get_rate_to_base(code, base)
 
     portfolio = get_portfolio(user_id)
@@ -332,9 +348,9 @@ def sell_currency(
     Возвращает словарь: currency_code, amount, old_balance, new_balance,
     rate, base, revenue, base_old_balance/base_new_balance (None без зачисления).
     """
-    code = validate_currency_code(currency_code)
+    code = _resolve_currency(currency_code)
     amount = validate_amount(amount)
-    base = validate_currency_code(base_currency)
+    base = _resolve_currency(base_currency)
 
     portfolio = get_portfolio(user_id)
     wallet = portfolio.get_wallet(code)
