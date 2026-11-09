@@ -1,10 +1,17 @@
 import hmac
+import math
 from datetime import datetime
 from typing import Any
 
-from valutatrade_hub.core.utils import generate_salt, hash_password
+from valutatrade_hub.core.utils import (
+    format_amount,
+    generate_salt,
+    hash_password,
+)
 
 MIN_PASSWORD_LENGTH = 4
+CURRENCY_CODE_MIN_LENGTH = 2
+CURRENCY_CODE_MAX_LENGTH = 5
 
 
 class User:
@@ -161,3 +168,111 @@ class User:
 
     def __repr__(self) -> str:
         return f"User(user_id={self._user_id}, username={self._username!r})"
+
+
+class Wallet:
+    """
+    Кошелёк пользователя для одной конкретной валюты.
+    """
+
+    def __init__(self, currency_code: str, balance: float = 0.0) -> None:
+        """
+        Создать кошелёк для валюты с начальным балансом.
+        """
+        self._currency_code = self._normalize_currency_code(currency_code)
+        self.balance = balance
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Wallet":
+        """
+        Восстановить кошелёк из словаря (формат portfolios.json).
+        """
+        return cls(currency_code=data["currency_code"], balance=data["balance"])
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Сериализовать кошелёк в словарь для записи в portfolios.json.
+        """
+        return {"currency_code": self._currency_code, "balance": self._balance}
+
+    @property
+    def currency_code(self) -> str:
+        """
+        Код валюты кошелька.
+        """
+        return self._currency_code
+
+    @property
+    def balance(self) -> float:
+        """
+        Текущий баланс кошелька.
+        """
+        return self._balance
+
+    @balance.setter
+    def balance(self, value: float) -> None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("Баланс должен быть числом")
+        if not math.isfinite(value):
+            raise ValueError("Баланс должен быть конечным числом")
+        if value < 0:
+            raise ValueError("Баланс не может быть отрицательным")
+        self._balance = float(value)
+
+    def deposit(self, amount: float) -> None:
+        """
+        Пополнить баланс на положительную сумму.
+        """
+        amount = self._validate_amount(amount)
+        self.balance = self._balance + amount
+
+    def withdraw(self, amount: float) -> None:
+        """
+        Снять положительную сумму, не превышающую текущий баланс.
+        """
+        amount = self._validate_amount(amount)
+        if amount > self._balance:
+            raise ValueError(
+                f"Недостаточно средств: доступно "
+                f"{format_amount(self._balance)} {self._currency_code}, "
+                f"требуется {format_amount(amount)} {self._currency_code}"
+            )
+        self.balance = self._balance - amount
+
+    def get_balance_info(self) -> str:
+        """
+        Вернуть строку с информацией о текущем балансе.
+        """
+        return f"{self._currency_code}: {format_amount(self._balance)}"
+
+    @staticmethod
+    def _validate_amount(amount: float) -> float:
+        """
+        Проверить, что сумма операции - положительное конечное число.
+        """
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+            raise TypeError("Сумма должна быть числом")
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError("'amount' должен быть положительным числом")
+        return float(amount)
+
+    @staticmethod
+    def _normalize_currency_code(code: str) -> str:
+        """
+        Привести код валюты к верхнему регистру и проверить формат.
+        """
+        if not isinstance(code, str):
+            raise TypeError("Код валюты должен быть строкой")
+        code = code.strip().upper()
+        if not (
+            CURRENCY_CODE_MIN_LENGTH <= len(code) <= CURRENCY_CODE_MAX_LENGTH
+            and code.isalnum()
+        ):
+            raise ValueError(
+                f"Код валюты должен состоять из {CURRENCY_CODE_MIN_LENGTH}–"
+                f"{CURRENCY_CODE_MAX_LENGTH} букв/цифр без пробелов"
+            )
+        return code
+
+    def __repr__(self) -> str:
+        return f"Wallet(currency_code={self._currency_code!r}, balance={self._balance})"
